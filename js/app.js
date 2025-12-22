@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     setupBackupListeners();
     initDatePickers();
+    syncCalendarDates();
 });
 
 function setupEventListeners() {
@@ -45,6 +46,7 @@ function setupBackupListeners() {
             alert(result.message);
             loadEmployees();
             loadVacations();
+            syncCalendarDates();
         } else {
             alert('Import failed: ' + result.message);
         }
@@ -61,6 +63,12 @@ function setupBackupListeners() {
             document.getElementById('calendar-preview').innerHTML =
                 '<p class="placeholder-text">Select a date range and click "Generate Calendar" to preview</p>';
             document.getElementById('calendar-actions').style.display = 'none';
+            // Reset calendar dates to defaults
+            const today = new Date();
+            const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            calendarFromPicker.setDate(today);
+            calendarToPicker.setDate(nextMonth);
+            calendarToPicker.set('minDate', today);
         }
     });
 }
@@ -104,6 +112,36 @@ function initDatePickers() {
 
 function formatDate(date) {
     return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get min/max date range from all vacations
+ */
+function getVacationDateRange() {
+    const vacations = Storage.getVacations();
+    if (vacations.length === 0) return null;
+
+    let minDate = vacations[0].start_date;
+    let maxDate = vacations[0].end_date;
+
+    vacations.forEach(v => {
+        if (v.start_date < minDate) minDate = v.start_date;
+        if (v.end_date > maxDate) maxDate = v.end_date;
+    });
+
+    return { from: minDate, to: maxDate };
+}
+
+/**
+ * Sync calendar date pickers with vacation date range
+ */
+function syncCalendarDates() {
+    const range = getVacationDateRange();
+    if (range) {
+        calendarFromPicker.setDate(range.from);
+        calendarToPicker.setDate(range.to);
+        calendarToPicker.set('minDate', range.from);
+    }
 }
 
 function loadEmployees() {
@@ -209,6 +247,7 @@ window.deleteEmployee = function(id) {
 
     loadEmployees();
     loadVacations();
+    syncCalendarDates();
 };
 
 function loadVacations() {
@@ -285,6 +324,7 @@ function handleVacationSubmit(e) {
 
     resetVacationForm();
     loadVacations();
+    syncCalendarDates();
 }
 
 // Expose to global scope for onclick handlers
@@ -321,6 +361,7 @@ window.deleteVacation = function(id) {
     }
 
     loadVacations();
+    syncCalendarDates();
 };
 
 async function handleCalendarGenerate(e) {

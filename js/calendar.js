@@ -11,6 +11,11 @@ const DAY_WIDTH = 30;
 const HEADER_HEIGHT = 50;
 const BOTTOM_PADDING = 20;
 
+// Legend constants
+const LEGEND_ROW_HEIGHT = 25;
+const LEGEND_PADDING = 30;
+const LEGEND_BADGE_SIZE = 14;
+
 // Colors
 const WEEKEND_COLOR = '#F0F0F0';
 const GRID_COLOR = '#C8C8C8';
@@ -258,6 +263,73 @@ function drawGrid(ctx, days, employeeCount) {
 }
 
 /**
+ * Format date for legend display
+ */
+function formatLegendDate(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Draw legend section at the bottom of the calendar
+ */
+function drawLegend(ctx, vacations, startY, width) {
+    if (!vacations || vacations.length === 0) {
+        return;
+    }
+
+    // Draw separator line
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(20, startY);
+    ctx.lineTo(width - 20, startY);
+    ctx.stroke();
+
+    // Draw legend title
+    ctx.fillStyle = 'black';
+    ctx.font = 'bold 14px Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Vacation Details:', 20, startY + 20);
+
+    // Draw each vacation entry
+    ctx.font = '12px Roboto, sans-serif';
+
+    vacations.forEach((v, i) => {
+        const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
+        let x = 20;
+
+        // Color badge
+        ctx.fillStyle = parseHexColor(v.employee?.color);
+        roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+        ctx.fill();
+        x += LEGEND_BADGE_SIZE + 10;
+
+        // Employee name (bold)
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 12px Roboto, sans-serif';
+        const name = v.employee?.name || 'Unknown';
+        ctx.fillText(name, x, y);
+        x += ctx.measureText(name).width + 15;
+
+        // Date range
+        ctx.font = '12px Roboto, sans-serif';
+        ctx.fillStyle = '#666';
+        const dateRange = `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`;
+        ctx.fillText(dateRange, x, y);
+        x += ctx.measureText(dateRange).width + 15;
+
+        // Description (if present)
+        if (v.description) {
+            ctx.fillStyle = '#888';
+            ctx.font = 'italic 12px Roboto, sans-serif';
+            ctx.fillText(`- ${v.description}`, x, y);
+        }
+    });
+}
+
+/**
  * Generate calendar canvas
  * @param {string} fromDateStr - Start date (YYYY-MM-DD)
  * @param {string} toDateStr - End date (YYYY-MM-DD)
@@ -273,9 +345,14 @@ export async function generateCalendar(fromDateStr, toDateStr, employees, vacati
 
     const days = calculateDays(fromDate, toDate);
 
+    // Calculate legend height (only if there are vacations with descriptions or any vacations)
+    const legendHeight = vacations.length > 0
+        ? LEGEND_PADDING + 45 + vacations.length * LEGEND_ROW_HEIGHT
+        : 0;
+
     // Calculate canvas dimensions
     let width = LEFT_MARGIN + days * DAY_WIDTH + 20;
-    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
+    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING + legendHeight;
 
     // Enforce minimum dimensions
     if (width < 800) width = 800;
@@ -314,6 +391,10 @@ export async function generateCalendar(fromDateStr, toDateStr, employees, vacati
     drawDateHeaders(ctx, fromDate, days);
     drawEmployeeRows(ctx, employees, vacationMap, fromDate, toDate, days);
     drawGrid(ctx, days, employees.length);
+
+    // Draw legend at the bottom
+    const legendStartY = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
+    drawLegend(ctx, vacations, legendStartY, width);
 
     // Generate data URL for download
     const dataUrl = canvas.toDataURL('image/png');
