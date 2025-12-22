@@ -706,12 +706,13 @@ function drawMonthlyLegend(ctx, vacations, startY, width) {
         ctx.fillText(name + ':', x, y);
         x += ctx.measureText(name + ':').width + 10;
 
-        // Vacation date ranges
+        // Vacation date ranges with descriptions
         ctx.font = '12px Roboto, sans-serif';
         ctx.fillStyle = '#666';
-        const ranges = data.vacations.map(v =>
-            `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`
-        ).join(', ');
+        const ranges = data.vacations.map(v => {
+            const dateRange = `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`;
+            return v.description ? `${dateRange} (${v.description})` : dateRange;
+        }).join(', ');
         ctx.fillText(ranges, x, y);
 
         rowIndex++;
