@@ -25,6 +25,21 @@ const DEFAULT_EMPLOYEE_COLOR = '#3498db';
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Monthly grid view constants
+const MONTH_THRESHOLD_DAYS = 61;
+const MONTHS_PER_ROW = 3;
+const MONTH_GRID_PADDING = 20;
+const MONTH_TITLE_HEIGHT = 30;
+const WEEKDAY_HEADER_HEIGHT = 25;
+const DAY_CELL_SIZE = 28;
+const DOT_RADIUS = 4;
+const DOT_SPACING = 2;
+const MAX_DOTS_PER_ROW = 3;
+const MAX_DOT_ROWS = 2;
+const MONTH_HORIZONTAL_GAP = 30;
+const MONTH_VERTICAL_GAP = 40;
+const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 let fontsLoaded = false;
 
 /**
@@ -74,6 +89,122 @@ function calculateDays(from, to) {
 function isWeekend(date) {
     const day = date.getDay();
     return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+}
+
+/**
+ * Check if date range requires monthly grid view
+ */
+function shouldUseMonthlyGridView(fromDate, toDate) {
+    const days = calculateDays(fromDate, toDate);
+    return days > MONTH_THRESHOLD_DAYS;
+}
+
+/**
+ * Get the day of week for the first day of a month (Monday=0, Sunday=6)
+ */
+function getFirstDayOfWeek(year, month) {
+    const day = new Date(year, month, 1).getDay();
+    return day === 0 ? 6 : day - 1; // Convert Sunday=0 to Monday=0 based
+}
+
+/**
+ * Get all months in a date range
+ */
+function getMonthsInRange(fromDate, toDate) {
+    const months = [];
+    let current = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+    const endMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+
+    while (current <= endMonth) {
+        const year = current.getFullYear();
+        const month = current.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        months.push({
+            year,
+            month,
+            name: MONTH_NAMES[month],
+            fullName: `${MONTH_NAMES[month]} ${year}`,
+            daysInMonth,
+            firstDayOfWeek: getFirstDayOfWeek(year, month),
+            startDate: new Date(year, month, 1),
+            endDate: new Date(year, month, daysInMonth)
+        });
+
+        current.setMonth(current.getMonth() + 1);
+    }
+    return months;
+}
+
+/**
+ * Format date as YYYY-MM-DD key
+ */
+function formatDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+/**
+ * Build vacation lookup map by date
+ */
+function buildVacationDayMap(vacations) {
+    const dayMap = new Map();
+
+    vacations.forEach(v => {
+        const start = new Date(v.start_date + 'T00:00:00');
+        const end = new Date(v.end_date + 'T00:00:00');
+        const current = new Date(start);
+
+        while (current <= end) {
+            const dateKey = formatDateKey(current);
+            if (!dayMap.has(dateKey)) {
+                dayMap.set(dateKey, []);
+            }
+            dayMap.get(dateKey).push({
+                empId: v.employee_id,
+                color: parseHexColor(v.employee?.color),
+                name: v.employee?.name || 'Unknown'
+            });
+            current.setDate(current.getDate() + 1);
+        }
+    });
+
+    return dayMap;
+}
+
+/**
+ * Calculate canvas dimensions for monthly grid view
+ */
+function calculateMonthlyGridDimensions(months, vacationCount) {
+    const numRows = Math.ceil(months.length / MONTHS_PER_ROW);
+    const numCols = Math.min(months.length, MONTHS_PER_ROW);
+
+    const monthWidth = 7 * DAY_CELL_SIZE;
+    const maxWeekRows = 6;
+    const monthHeight = MONTH_TITLE_HEIGHT + WEEKDAY_HEADER_HEIGHT + (maxWeekRows * DAY_CELL_SIZE);
+
+    const gridWidth = numCols * monthWidth + (numCols - 1) * MONTH_HORIZONTAL_GAP;
+    const gridHeight = numRows * monthHeight + (numRows - 1) * MONTH_VERTICAL_GAP;
+
+    const legendHeight = vacationCount > 0
+        ? LEGEND_PADDING + 45 + vacationCount * LEGEND_ROW_HEIGHT
+        : 0;
+
+    const width = MONTH_GRID_PADDING * 2 + gridWidth;
+    const height = TOP_MARGIN + gridHeight + BOTTOM_PADDING + legendHeight + MONTH_GRID_PADDING;
+
+    return {
+        width: Math.max(width, 600),
+        height: Math.max(height, 400),
+        monthWidth,
+        monthHeight,
+        gridWidth,
+        gridHeight,
+        numRows,
+        numCols
+    };
 }
 
 /**
@@ -329,23 +460,307 @@ function drawLegend(ctx, vacations, startY, width) {
     });
 }
 
+// ==========================================
+// Monthly Grid View Drawing Functions
+// ==========================================
+
 /**
- * Generate calendar canvas
- * @param {string} fromDateStr - Start date (YYYY-MM-DD)
- * @param {string} toDateStr - End date (YYYY-MM-DD)
- * @param {Array} employees - Employee array
- * @param {Array} vacations - Vacation array (with employee data)
- * @returns {Promise<{canvas: HTMLCanvasElement, dataUrl: string}>}
+ * Draw monthly grid view title
  */
-export async function generateCalendar(fromDateStr, toDateStr, employees, vacations) {
-    await ensureFontsLoaded();
+function drawMonthlyTitle(ctx, width, fromDate, toDate) {
+    ctx.fillStyle = 'black';
+    ctx.font = 'bold 18px Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-    const fromDate = new Date(fromDateStr + 'T00:00:00');
-    const toDate = new Date(toDateStr + 'T00:00:00');
+    const fromStr = fromDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const toStr = toDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    ctx.fillText(`Team Vacation Calendar: ${fromStr} - ${toStr}`, width / 2, 25);
+}
 
+/**
+ * Draw colored dots for employees on vacation
+ */
+function drawVacationDots(ctx, cellX, cellY, vacations) {
+    const dotAreaX = cellX + DAY_CELL_SIZE / 2;
+    const dotAreaY = cellY + 14;
+
+    const dotsPerRow = Math.min(vacations.length, MAX_DOTS_PER_ROW);
+    const totalRows = Math.min(Math.ceil(vacations.length / MAX_DOTS_PER_ROW), MAX_DOT_ROWS);
+    const maxDotsToShow = totalRows * MAX_DOTS_PER_ROW;
+
+    let dotIndex = 0;
+    for (let row = 0; row < totalRows && dotIndex < vacations.length; row++) {
+        const dotsInThisRow = Math.min(vacations.length - dotIndex, MAX_DOTS_PER_ROW);
+        const rowWidth = dotsInThisRow * (DOT_RADIUS * 2 + DOT_SPACING) - DOT_SPACING;
+        const rowStartX = dotAreaX - rowWidth / 2 + DOT_RADIUS;
+
+        for (let col = 0; col < dotsInThisRow && dotIndex < maxDotsToShow; col++) {
+            const dotX = rowStartX + col * (DOT_RADIUS * 2 + DOT_SPACING);
+            const dotY = dotAreaY + row * (DOT_RADIUS * 2 + DOT_SPACING);
+
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, DOT_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = vacations[dotIndex].color;
+            ctx.fill();
+
+            dotIndex++;
+        }
+    }
+
+    // Show "+" if more vacations than can be shown
+    if (vacations.length > maxDotsToShow) {
+        ctx.fillStyle = '#666';
+        ctx.font = '8px Roboto, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('+', cellX + DAY_CELL_SIZE - 5, cellY + DAY_CELL_SIZE - 5);
+    }
+}
+
+/**
+ * Draw empty day cell (for padding before first day)
+ */
+function drawEmptyDayCell(ctx, x, y) {
+    ctx.fillStyle = '#FAFAFA';
+    ctx.fillRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
+}
+
+/**
+ * Draw a single day cell with date number and vacation dots
+ */
+function drawDayCell(ctx, x, y, dayNum, isWeekendDay, isInRange, vacations) {
+    // Background color
+    if (!isInRange) {
+        ctx.fillStyle = '#F5F5F5';
+    } else if (isWeekendDay) {
+        ctx.fillStyle = WEEKEND_COLOR;
+    } else {
+        ctx.fillStyle = 'white';
+    }
+    ctx.fillRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
+
+    // Cell border
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
+
+    // Day number (top-left of cell)
+    ctx.fillStyle = isInRange ? 'black' : '#BBB';
+    ctx.font = '10px Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(dayNum.toString(), x + 2, y + 2);
+
+    // Draw vacation dots (if in range and has vacations)
+    if (isInRange && vacations.length > 0) {
+        drawVacationDots(ctx, x, y, vacations);
+    }
+}
+
+/**
+ * Draw a single month grid
+ */
+function drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo) {
+    const monthWidth = 7 * DAY_CELL_SIZE;
+
+    // Draw month title (e.g., "January 2025")
+    ctx.fillStyle = 'black';
+    ctx.font = 'bold 14px Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(month.fullName, x + monthWidth / 2, y + MONTH_TITLE_HEIGHT / 2);
+
+    // Draw weekday headers
+    ctx.font = '10px Roboto, sans-serif';
+    ctx.fillStyle = '#666';
+    const headerY = y + MONTH_TITLE_HEIGHT + WEEKDAY_HEADER_HEIGHT / 2;
+    WEEKDAY_NAMES.forEach((name, i) => {
+        const headerX = x + i * DAY_CELL_SIZE + DAY_CELL_SIZE / 2;
+        ctx.textAlign = 'center';
+        ctx.fillText(name, headerX, headerY);
+    });
+
+    // Draw day cells
+    const cellStartY = y + MONTH_TITLE_HEIGHT + WEEKDAY_HEADER_HEIGHT;
+    let dayNum = 1;
+    let weekRow = 0;
+
+    // Draw empty cells for days before month starts
+    for (let i = 0; i < month.firstDayOfWeek; i++) {
+        const cellX = x + i * DAY_CELL_SIZE;
+        const cellY = cellStartY;
+        drawEmptyDayCell(ctx, cellX, cellY);
+    }
+
+    while (dayNum <= month.daysInMonth) {
+        const dayOfWeek = (month.firstDayOfWeek + dayNum - 1) % 7;
+        const cellX = x + dayOfWeek * DAY_CELL_SIZE;
+        const cellY = cellStartY + weekRow * DAY_CELL_SIZE;
+
+        const currentDate = new Date(month.year, month.month, dayNum);
+        const dateKey = formatDateKey(currentDate);
+        const isInRange = currentDate >= rangeFrom && currentDate <= rangeTo;
+        const isWeekendDay = dayOfWeek >= 5; // Saturday (5) or Sunday (6) in Mon-based
+        const vacationsOnDay = vacationDayMap.get(dateKey) || [];
+
+        drawDayCell(ctx, cellX, cellY, dayNum, isWeekendDay, isInRange, vacationsOnDay);
+
+        // Move to next row on Sunday (dayOfWeek === 6)
+        if (dayOfWeek === 6) {
+            weekRow++;
+        }
+        dayNum++;
+    }
+
+    // Draw remaining empty cells to complete the last row
+    const lastDayOfWeek = (month.firstDayOfWeek + month.daysInMonth - 1) % 7;
+    if (lastDayOfWeek < 6) {
+        for (let i = lastDayOfWeek + 1; i <= 6; i++) {
+            const cellX = x + i * DAY_CELL_SIZE;
+            const cellY = cellStartY + weekRow * DAY_CELL_SIZE;
+            drawEmptyDayCell(ctx, cellX, cellY);
+        }
+    }
+}
+
+/**
+ * Draw all months in the grid layout
+ */
+function drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, rangeFrom, rangeTo) {
+    const startX = MONTH_GRID_PADDING;
+    const startY = TOP_MARGIN;
+
+    months.forEach((month, index) => {
+        const row = Math.floor(index / MONTHS_PER_ROW);
+        const col = index % MONTHS_PER_ROW;
+
+        const x = startX + col * (dimensions.monthWidth + MONTH_HORIZONTAL_GAP);
+        const y = startY + row * (dimensions.monthHeight + MONTH_VERTICAL_GAP);
+
+        drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo);
+    });
+}
+
+/**
+ * Draw legend for monthly grid view (grouped by employee)
+ */
+function drawMonthlyLegend(ctx, vacations, startY, width) {
+    if (!vacations || vacations.length === 0) {
+        return;
+    }
+
+    // Draw separator line
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(20, startY);
+    ctx.lineTo(width - 20, startY);
+    ctx.stroke();
+
+    // Draw legend title
+    ctx.fillStyle = 'black';
+    ctx.font = 'bold 14px Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Legend - Employee Vacations:', 20, startY + 20);
+
+    // Group vacations by employee
+    const vacationsByEmployee = new Map();
+    vacations.forEach(v => {
+        const empId = v.employee_id;
+        if (!vacationsByEmployee.has(empId)) {
+            vacationsByEmployee.set(empId, {
+                employee: v.employee,
+                vacations: []
+            });
+        }
+        vacationsByEmployee.get(empId).vacations.push(v);
+    });
+
+    // Draw each employee's vacations
+    ctx.font = '12px Roboto, sans-serif';
+    let rowIndex = 0;
+
+    vacationsByEmployee.forEach((data) => {
+        const y = startY + 45 + rowIndex * LEGEND_ROW_HEIGHT;
+        let x = 20;
+
+        // Color dot
+        ctx.beginPath();
+        ctx.arc(x + DOT_RADIUS + 1, y, DOT_RADIUS + 1, 0, Math.PI * 2);
+        ctx.fillStyle = parseHexColor(data.employee?.color);
+        ctx.fill();
+        x += DOT_RADIUS * 2 + 12;
+
+        // Employee name
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 12px Roboto, sans-serif';
+        const name = data.employee?.name || 'Unknown';
+        ctx.fillText(name + ':', x, y);
+        x += ctx.measureText(name + ':').width + 10;
+
+        // Vacation date ranges
+        ctx.font = '12px Roboto, sans-serif';
+        ctx.fillStyle = '#666';
+        const ranges = data.vacations.map(v =>
+            `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`
+        ).join(', ');
+        ctx.fillText(ranges, x, y);
+
+        rowIndex++;
+    });
+}
+
+/**
+ * Generate monthly grid view calendar
+ */
+async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacations) {
+    // Get all months in range
+    const months = getMonthsInRange(fromDate, toDate);
+
+    // Calculate dimensions
+    const dimensions = calculateMonthlyGridDimensions(months, vacations.length);
+
+    // Build vacation lookup map
+    const vacationDayMap = buildVacationDayMap(vacations);
+
+    // Create canvas with high DPI support
+    const canvas = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = dimensions.width * dpr;
+    canvas.height = dimensions.height * dpr;
+    canvas.style.width = dimensions.width + 'px';
+    canvas.style.height = dimensions.height + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    // Draw all layers
+    drawBackground(ctx, dimensions.width, dimensions.height);
+    drawMonthlyTitle(ctx, dimensions.width, fromDate, toDate);
+    drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, fromDate, toDate);
+
+    // Draw legend at the bottom
+    const legendStartY = TOP_MARGIN + dimensions.gridHeight + BOTTOM_PADDING;
+    drawMonthlyLegend(ctx, vacations, legendStartY, dimensions.width);
+
+    // Generate data URL for download
+    const dataUrl = canvas.toDataURL('image/png');
+
+    return { canvas, dataUrl };
+}
+
+/**
+ * Generate timeline view calendar (original implementation)
+ */
+async function generateTimelineCalendar(fromDate, toDate, employees, vacations) {
     const days = calculateDays(fromDate, toDate);
 
-    // Calculate legend height (only if there are vacations with descriptions or any vacations)
+    // Calculate legend height
     const legendHeight = vacations.length > 0
         ? LEGEND_PADDING + 45 + vacations.length * LEGEND_ROW_HEIGHT
         : 0;
@@ -384,7 +799,7 @@ export async function generateCalendar(fromDateStr, toDateStr, employees, vacati
         });
     });
 
-    // Draw all layers in order (matching Go implementation)
+    // Draw all layers in order
     drawBackground(ctx, width, height);
     drawTitle(ctx, width);
     drawWeekendBackground(ctx, fromDate, days, employees.length);
@@ -400,4 +815,26 @@ export async function generateCalendar(fromDateStr, toDateStr, employees, vacati
     const dataUrl = canvas.toDataURL('image/png');
 
     return { canvas, dataUrl };
+}
+
+/**
+ * Generate calendar canvas - routes to appropriate view based on date range
+ * @param {string} fromDateStr - Start date (YYYY-MM-DD)
+ * @param {string} toDateStr - End date (YYYY-MM-DD)
+ * @param {Array} employees - Employee array
+ * @param {Array} vacations - Vacation array (with employee data)
+ * @returns {Promise<{canvas: HTMLCanvasElement, dataUrl: string}>}
+ */
+export async function generateCalendar(fromDateStr, toDateStr, employees, vacations) {
+    await ensureFontsLoaded();
+
+    const fromDate = new Date(fromDateStr + 'T00:00:00');
+    const toDate = new Date(toDateStr + 'T00:00:00');
+
+    // Route to appropriate view based on date range
+    if (shouldUseMonthlyGridView(fromDate, toDate)) {
+        return generateMonthlyGridCalendar(fromDate, toDate, employees, vacations);
+    } else {
+        return generateTimelineCalendar(fromDate, toDate, employees, vacations);
+    }
 }
