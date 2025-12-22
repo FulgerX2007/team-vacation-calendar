@@ -40,6 +40,9 @@ const MONTH_HORIZONTAL_GAP = 30;
 const MONTH_VERTICAL_GAP = 40;
 const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// PNG quality - higher value = better quality
+const PNG_SCALE = 2;
+
 let fontsLoaded = false;
 
 /**
@@ -730,7 +733,7 @@ async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacation
 
     // Create canvas with high DPI support
     const canvas = document.createElement('canvas');
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.max(window.devicePixelRatio || 1, PNG_SCALE);
     canvas.width = dimensions.width * dpr;
     canvas.height = dimensions.height * dpr;
     canvas.style.width = dimensions.width + 'px';
@@ -777,7 +780,7 @@ async function generateTimelineCalendar(fromDate, toDate, employees, vacations) 
     const canvas = document.createElement('canvas');
 
     // Handle high DPI displays
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.max(window.devicePixelRatio || 1, PNG_SCALE);
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     canvas.style.width = width + 'px';

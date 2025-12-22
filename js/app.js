@@ -7,6 +7,13 @@ import * as Storage from './storage.js';
 import * as Calendar from './calendar.js';
 import * as Backup from './backup.js';
 
+// Color palette for auto-generating employee colors
+const EMPLOYEE_COLORS = [
+    '#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f39c12',
+    '#1abc9c', '#e91e63', '#00bcd4', '#ff5722', '#607d8b'
+];
+let colorIndex = 0;
+
 let vacationStartPicker, vacationEndPicker;
 let calendarFromPicker, calendarToPicker;
 
@@ -227,10 +234,16 @@ window.editEmployee = function(id, name, color) {
     document.getElementById('cancel-employee').style.display = 'inline-block';
 };
 
+function getNextColor() {
+    const color = EMPLOYEE_COLORS[colorIndex % EMPLOYEE_COLORS.length];
+    colorIndex++;
+    return color;
+}
+
 function resetEmployeeForm() {
     document.getElementById('employee-id').value = '';
     document.getElementById('employee-name').value = '';
-    document.getElementById('employee-color').value = '#3498db';
+    document.getElementById('employee-color').value = getNextColor();
     document.querySelector('#employee-form button[type="submit"]').textContent = 'Add Employee';
     document.getElementById('cancel-employee').style.display = 'none';
 }

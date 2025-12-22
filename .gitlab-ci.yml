@@ -8,6 +8,7 @@ pages:
     - cp -r css public/
     - cp -r js public/
     - cp -r fonts public/
+    - cp TeamVacationCalendar_192x192.png public/
   artifacts:
     paths:
       - public
