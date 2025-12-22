@@ -20,6 +20,8 @@ const LEGEND_BADGE_SIZE = 14;
 const WEEKEND_COLOR = '#F0F0F0';
 const GRID_COLOR = '#C8C8C8';
 const DEFAULT_EMPLOYEE_COLOR = '#3498db';
+const HOLIDAY_COLOR = 'rgba(231, 76, 60, 0.25)';
+const HOLIDAY_BORDER_COLOR = '#e74c3c';
 
 // Month names for header
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -92,6 +94,20 @@ function calculateDays(from, to) {
 function isWeekend(date) {
     const day = date.getDay();
     return day === 0 || day === 6; // Sunday = 0, Saturday = 6
+}
+
+/**
+ * Build holiday lookup map from array
+ * @param {Array} holidays - Array of holiday objects from API
+ * @returns {Map} Map of date string (YYYY-MM-DD) to holiday object
+ */
+function buildHolidayMap(holidays) {
+    const map = new Map();
+    if (!holidays || holidays.length === 0) return map;
+    holidays.forEach(h => {
+        map.set(h.date, h);
+    });
+    return map;
 }
 
 /**
@@ -180,7 +196,7 @@ function buildVacationDayMap(vacations) {
 /**
  * Calculate canvas dimensions for monthly grid view
  */
-function calculateMonthlyGridDimensions(months, vacationCount) {
+function calculateMonthlyGridDimensions(months, vacationCount, holidayCount = 0) {
     const numRows = Math.ceil(months.length / MONTHS_PER_ROW);
     const numCols = Math.min(months.length, MONTHS_PER_ROW);
 
@@ -191,12 +207,16 @@ function calculateMonthlyGridDimensions(months, vacationCount) {
     const gridWidth = numCols * monthWidth + (numCols - 1) * MONTH_HORIZONTAL_GAP;
     const gridHeight = numRows * monthHeight + (numRows - 1) * MONTH_VERTICAL_GAP;
 
-    const legendHeight = vacationCount > 0
+    const vacationLegendHeight = vacationCount > 0
         ? LEGEND_PADDING + 45 + vacationCount * LEGEND_ROW_HEIGHT
         : 0;
 
+    const holidayLegendHeight = holidayCount > 0
+        ? LEGEND_PADDING + 45 + holidayCount * LEGEND_ROW_HEIGHT
+        : 0;
+
     const width = MONTH_GRID_PADDING * 2 + gridWidth;
-    const height = TOP_MARGIN + gridHeight + BOTTOM_PADDING + legendHeight + MONTH_GRID_PADDING;
+    const height = TOP_MARGIN + gridHeight + BOTTOM_PADDING + vacationLegendHeight + holidayLegendHeight + MONTH_GRID_PADDING;
 
     return {
         width: Math.max(width, 600),
@@ -206,7 +226,8 @@ function calculateMonthlyGridDimensions(months, vacationCount) {
         gridWidth,
         gridHeight,
         numRows,
-        numCols
+        numCols,
+        vacationLegendHeight
     };
 }
 
@@ -285,6 +306,37 @@ function drawWeekendBackground(ctx, fromDate, days, employeeCount) {
             const y = TOP_MARGIN + HEADER_HEIGHT;
             const h = employeeCount * ROW_HEIGHT;
             ctx.fillRect(x, y, DAY_WIDTH, h);
+        }
+    }
+}
+
+/**
+ * Draw holiday background columns (timeline view)
+ */
+function drawHolidayBackground(ctx, fromDate, days, employeeCount, holidayMap) {
+    if (!holidayMap || holidayMap.size === 0) return;
+
+    for (let i = 0; i < days; i++) {
+        const date = new Date(fromDate);
+        date.setDate(date.getDate() + i);
+        const dateKey = formatDateKey(date);
+
+        if (holidayMap.has(dateKey)) {
+            const x = LEFT_MARGIN + i * DAY_WIDTH;
+            const y = TOP_MARGIN + HEADER_HEIGHT;
+            const h = employeeCount * ROW_HEIGHT;
+
+            // Draw holiday background
+            ctx.fillStyle = HOLIDAY_COLOR;
+            ctx.fillRect(x, y, DAY_WIDTH, h);
+
+            // Draw top border indicator
+            ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, TOP_MARGIN + HEADER_HEIGHT);
+            ctx.lineTo(x + DAY_WIDTH, TOP_MARGIN + HEADER_HEIGHT);
+            ctx.stroke();
         }
     }
 }
@@ -535,10 +587,12 @@ function drawEmptyDayCell(ctx, x, y) {
 /**
  * Draw a single day cell with date number and vacation dots
  */
-function drawDayCell(ctx, x, y, dayNum, isWeekendDay, isInRange, vacations) {
-    // Background color
+function drawDayCell(ctx, x, y, dayNum, isWeekendDay, isHolidayDay, isInRange, vacations) {
+    // Background color - holiday takes priority over weekend
     if (!isInRange) {
         ctx.fillStyle = '#F5F5F5';
+    } else if (isHolidayDay) {
+        ctx.fillStyle = HOLIDAY_COLOR;
     } else if (isWeekendDay) {
         ctx.fillStyle = WEEKEND_COLOR;
     } else {
@@ -546,9 +600,14 @@ function drawDayCell(ctx, x, y, dayNum, isWeekendDay, isInRange, vacations) {
     }
     ctx.fillRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
 
-    // Cell border
-    ctx.strokeStyle = GRID_COLOR;
-    ctx.lineWidth = 0.5;
+    // Cell border - highlight holidays with red border
+    if (isHolidayDay && isInRange) {
+        ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
+        ctx.lineWidth = 1.5;
+    } else {
+        ctx.strokeStyle = GRID_COLOR;
+        ctx.lineWidth = 0.5;
+    }
     ctx.strokeRect(x, y, DAY_CELL_SIZE, DAY_CELL_SIZE);
 
     // Day number (top-left of cell)
@@ -567,7 +626,7 @@ function drawDayCell(ctx, x, y, dayNum, isWeekendDay, isInRange, vacations) {
 /**
  * Draw a single month grid
  */
-function drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo) {
+function drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo, holidayMap) {
     const monthWidth = 7 * DAY_CELL_SIZE;
 
     // Draw month title (e.g., "January 2025")
@@ -608,9 +667,10 @@ function drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo) {
         const dateKey = formatDateKey(currentDate);
         const isInRange = currentDate >= rangeFrom && currentDate <= rangeTo;
         const isWeekendDay = dayOfWeek >= 5; // Saturday (5) or Sunday (6) in Mon-based
+        const isHolidayDay = holidayMap && holidayMap.has(dateKey);
         const vacationsOnDay = vacationDayMap.get(dateKey) || [];
 
-        drawDayCell(ctx, cellX, cellY, dayNum, isWeekendDay, isInRange, vacationsOnDay);
+        drawDayCell(ctx, cellX, cellY, dayNum, isWeekendDay, isHolidayDay, isInRange, vacationsOnDay);
 
         // Move to next row on Sunday (dayOfWeek === 6)
         if (dayOfWeek === 6) {
@@ -633,7 +693,7 @@ function drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo) {
 /**
  * Draw all months in the grid layout
  */
-function drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, rangeFrom, rangeTo) {
+function drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, rangeFrom, rangeTo, holidayMap) {
     const startX = MONTH_GRID_PADDING;
     const startY = TOP_MARGIN;
 
@@ -644,7 +704,7 @@ function drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, rangeFrom,
         const x = startX + col * (dimensions.monthWidth + MONTH_HORIZONTAL_GAP);
         const y = startY + row * (dimensions.monthHeight + MONTH_VERTICAL_GAP);
 
-        drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo);
+        drawMonthGrid(ctx, month, x, y, vacationDayMap, rangeFrom, rangeTo, holidayMap);
     });
 }
 
@@ -720,14 +780,69 @@ function drawMonthlyLegend(ctx, vacations, startY, width) {
 }
 
 /**
+ * Draw holiday legend section
+ */
+function drawHolidayLegend(ctx, holidays, startY, width, countryName) {
+    if (!holidays || holidays.length === 0) {
+        return startY;
+    }
+
+    // Draw separator line
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(20, startY);
+    ctx.lineTo(width - 20, startY);
+    ctx.stroke();
+
+    // Draw legend title
+    ctx.fillStyle = 'black';
+    ctx.font = 'bold 14px Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`Public Holidays (${countryName}):`, 20, startY + 20);
+
+    // Draw each holiday
+    ctx.font = '12px Roboto, sans-serif';
+    holidays.forEach((h, i) => {
+        const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
+        let x = 20;
+
+        // Holiday color badge
+        ctx.fillStyle = HOLIDAY_COLOR;
+        roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+        ctx.fill();
+        ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        x += LEGEND_BADGE_SIZE + 10;
+
+        // Date
+        ctx.fillStyle = '#666';
+        const dateStr = formatLegendDate(h.date);
+        ctx.fillText(dateStr, x, y);
+        x += ctx.measureText(dateStr).width + 15;
+
+        // Holiday name
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 12px Roboto, sans-serif';
+        ctx.fillText(h.name, x, y);
+        ctx.font = '12px Roboto, sans-serif';
+    });
+
+    return startY + 45 + holidays.length * LEGEND_ROW_HEIGHT;
+}
+
+/**
  * Generate monthly grid view calendar
  */
-async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacations) {
+async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacations, holidayMap, holidays, countryName) {
     // Get all months in range
     const months = getMonthsInRange(fromDate, toDate);
 
-    // Calculate dimensions
-    const dimensions = calculateMonthlyGridDimensions(months, vacations.length);
+    // Calculate dimensions (including holiday legend space)
+    const holidayCount = holidays ? holidays.length : 0;
+    const dimensions = calculateMonthlyGridDimensions(months, vacations.length, holidayCount);
 
     // Build vacation lookup map
     const vacationDayMap = buildVacationDayMap(vacations);
@@ -746,11 +861,15 @@ async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacation
     // Draw all layers
     drawBackground(ctx, dimensions.width, dimensions.height);
     drawMonthlyTitle(ctx, dimensions.width, fromDate, toDate);
-    drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, fromDate, toDate);
+    drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, fromDate, toDate, holidayMap);
 
-    // Draw legend at the bottom
-    const legendStartY = TOP_MARGIN + dimensions.gridHeight + BOTTOM_PADDING;
-    drawMonthlyLegend(ctx, vacations, legendStartY, dimensions.width);
+    // Draw vacation legend at the bottom
+    const vacationLegendStartY = TOP_MARGIN + dimensions.gridHeight + BOTTOM_PADDING;
+    drawMonthlyLegend(ctx, vacations, vacationLegendStartY, dimensions.width);
+
+    // Draw holiday legend below vacation legend
+    const holidayLegendStartY = vacationLegendStartY + dimensions.vacationLegendHeight;
+    drawHolidayLegend(ctx, holidays, holidayLegendStartY, dimensions.width, countryName || 'Selected Country');
 
     // Generate data URL for download
     const dataUrl = canvas.toDataURL('image/png');
@@ -761,17 +880,23 @@ async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacation
 /**
  * Generate timeline view calendar (original implementation)
  */
-async function generateTimelineCalendar(fromDate, toDate, employees, vacations) {
+async function generateTimelineCalendar(fromDate, toDate, employees, vacations, holidayMap, holidays, countryName) {
     const days = calculateDays(fromDate, toDate);
 
-    // Calculate legend height
-    const legendHeight = vacations.length > 0
+    // Calculate vacation legend height
+    const vacationLegendHeight = vacations.length > 0
         ? LEGEND_PADDING + 45 + vacations.length * LEGEND_ROW_HEIGHT
+        : 0;
+
+    // Calculate holiday legend height
+    const holidayCount = holidays ? holidays.length : 0;
+    const holidayLegendHeight = holidayCount > 0
+        ? LEGEND_PADDING + 45 + holidayCount * LEGEND_ROW_HEIGHT
         : 0;
 
     // Calculate canvas dimensions
     let width = LEFT_MARGIN + days * DAY_WIDTH + 20;
-    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING + legendHeight;
+    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING + vacationLegendHeight + holidayLegendHeight;
 
     // Enforce minimum dimensions
     if (width < 800) width = 800;
@@ -807,13 +932,18 @@ async function generateTimelineCalendar(fromDate, toDate, employees, vacations) 
     drawBackground(ctx, width, height);
     drawTitle(ctx, width);
     drawWeekendBackground(ctx, fromDate, days, employees.length);
+    drawHolidayBackground(ctx, fromDate, days, employees.length, holidayMap);
     drawDateHeaders(ctx, fromDate, days);
     drawEmployeeRows(ctx, employees, vacationMap, fromDate, toDate, days);
     drawGrid(ctx, days, employees.length);
 
-    // Draw legend at the bottom
-    const legendStartY = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
-    drawLegend(ctx, vacations, legendStartY, width);
+    // Draw vacation legend at the bottom
+    const vacationLegendStartY = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
+    drawLegend(ctx, vacations, vacationLegendStartY, width);
+
+    // Draw holiday legend below vacation legend
+    const holidayLegendStartY = vacationLegendStartY + vacationLegendHeight;
+    drawHolidayLegend(ctx, holidays, holidayLegendStartY, width, countryName || 'Selected Country');
 
     // Generate data URL for download
     const dataUrl = canvas.toDataURL('image/png');
@@ -827,18 +957,23 @@ async function generateTimelineCalendar(fromDate, toDate, employees, vacations) 
  * @param {string} toDateStr - End date (YYYY-MM-DD)
  * @param {Array} employees - Employee array
  * @param {Array} vacations - Vacation array (with employee data)
+ * @param {Array} holidays - Optional array of holiday objects from API
+ * @param {string} countryName - Optional country name for legend
  * @returns {Promise<{canvas: HTMLCanvasElement, dataUrl: string}>}
  */
-export async function generateCalendar(fromDateStr, toDateStr, employees, vacations) {
+export async function generateCalendar(fromDateStr, toDateStr, employees, vacations, holidays = [], countryName = '') {
     await ensureFontsLoaded();
 
     const fromDate = new Date(fromDateStr + 'T00:00:00');
     const toDate = new Date(toDateStr + 'T00:00:00');
 
+    // Build holiday lookup map
+    const holidayMap = buildHolidayMap(holidays);
+
     // Route to appropriate view based on date range
     if (shouldUseMonthlyGridView(fromDate, toDate)) {
-        return generateMonthlyGridCalendar(fromDate, toDate, employees, vacations);
+        return generateMonthlyGridCalendar(fromDate, toDate, employees, vacations, holidayMap, holidays, countryName);
     } else {
-        return generateTimelineCalendar(fromDate, toDate, employees, vacations);
+        return generateTimelineCalendar(fromDate, toDate, employees, vacations, holidayMap, holidays, countryName);
     }
 }

@@ -6,6 +6,7 @@
 import * as Storage from './storage.js';
 import * as Calendar from './calendar.js';
 import * as Backup from './backup.js';
+import * as Holidays from './holidays.js';
 
 // Color palette for auto-generating employee colors
 const EMPLOYEE_COLORS = [
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     setupBackupListeners();
     initDatePickers();
+    initCountrySelector();
     syncCalendarDates();
 });
 
@@ -114,6 +116,34 @@ function initDatePickers() {
         ...commonConfig,
         defaultDate: nextMonth,
         minDate: today
+    });
+}
+
+/**
+ * Initialize country selector dropdown for holidays
+ */
+function initCountrySelector() {
+    const select = document.getElementById('holiday-country');
+    if (!select) return;
+
+    // Populate with countries from holidays module
+    const countries = Holidays.getPopularCountries();
+    countries.forEach(country => {
+        const option = document.createElement('option');
+        option.value = country.code;
+        option.textContent = country.name;
+        select.appendChild(option);
+    });
+
+    // Restore saved selection
+    const savedCountry = Holidays.getSelectedCountry();
+    if (savedCountry) {
+        select.value = savedCountry;
+    }
+
+    // Save selection on change
+    select.addEventListener('change', (e) => {
+        Holidays.setSelectedCountry(e.target.value);
     });
 }
 
@@ -416,6 +446,7 @@ async function handleCalendarGenerate(e) {
 
     const from = document.getElementById('calendar-from').value;
     const to = document.getElementById('calendar-to').value;
+    const countryCode = document.getElementById('holiday-country').value;
 
     if (!from || !to) {
         alert('Please select both from and to dates');
@@ -437,7 +468,20 @@ async function handleCalendarGenerate(e) {
             return;
         }
 
-        const { canvas, dataUrl } = await Calendar.generateCalendar(from, to, employees, vacations);
+        // Fetch holidays if country is selected
+        let holidays = [];
+        let countryName = '';
+        if (countryCode) {
+            try {
+                holidays = await Holidays.getHolidaysForDateRange(countryCode, from, to);
+                countryName = Holidays.getCountryName(countryCode);
+            } catch (err) {
+                console.warn('Failed to fetch holidays:', err);
+                // Continue without holidays
+            }
+        }
+
+        const { canvas, dataUrl } = await Calendar.generateCalendar(from, to, employees, vacations, holidays, countryName);
 
         // Clear and display canvas
         preview.innerHTML = '';

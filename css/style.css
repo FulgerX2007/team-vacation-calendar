@@ -326,6 +326,30 @@ footer a:hover {
     text-decoration: underline;
 }
 
+/* Holiday country selector */
+#holiday-country {
+    min-width: 160px;
+}
+
+/* Flatpickr holiday highlighting */
+.flatpickr-day.holiday {
+    background-color: rgba(231, 76, 60, 0.2) !important;
+    border-color: #e74c3c !important;
+}
+
+.flatpickr-day.holiday:hover {
+    background-color: rgba(231, 76, 60, 0.4) !important;
+}
+
+.flatpickr-day.holiday.today {
+    border-color: #e74c3c !important;
+}
+
+.flatpickr-day.holiday.selected {
+    background-color: #e74c3c !important;
+    border-color: #c0392b !important;
+}
+
 @media (max-width: 768px) {
     .panels {
         grid-template-columns: 1fr;
