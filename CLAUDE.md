@@ -4,69 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Team Vacation Calendar is a Go web application for managing employee vacations with calendar visualization. It uses Gin for HTTP routing, GORM with SQLite for persistence, and generates PNG calendar images showing vacation periods.
+Team Vacation Calendar is a pure static web application for managing employee vacations with calendar visualization. It runs entirely in the browser using HTML5 Canvas for rendering and LocalStorage for data persistence. No backend server is required.
 
-## Development Commands
+## Development
 
 ```bash
-# Run the application (starts on http://localhost:8080)
-go run main.go
+# Open directly in browser
+open index.html
 
-# Build binary
-go build -o vacation_calendar main.go
+# Or use any static server (e.g., Python)
+python3 -m http.server 8080
 
-# Install/update dependencies
-go mod download
-go mod tidy
-
-# Run tests (when added)
-go test ./...
-
-# Run single test
-go test -v ./internal/services -run TestCalendarGeneration
+# Or with Node.js
+npx serve .
 ```
+
+No build step is required - the application runs directly from source files.
 
 ## Architecture
 
 ```
-main.go                     # Entry point - Gin router setup
-internal/
-├── models/                 # GORM data structures (Employee, Vacation)
-├── database/               # DB initialization with auto-migration
-├── repository/             # Data access layer (CRUD operations)
-├── handlers/               # HTTP request handlers
-└── services/               # Business logic (calendar PNG generation)
-templates/                  # Go HTML templates
-static/{css,js}/            # Frontend assets (vanilla JS, CSS)
+index.html                          # Entry point - main HTML page
+css/
+└── style.css                       # Styling (Grid, Flexbox)
+js/
+├── app.js                          # Main app logic, UI event handlers, date pickers
+├── calendar.js                     # HTML5 Canvas calendar rendering
+├── storage.js                      # LocalStorage persistence layer
+└── backup.js                       # JSON export/import functionality
+fonts/
+├── Roboto-Regular.ttf              # UI fonts
+└── Roboto-Bold.ttf
+TeamVacationCalendar_192x192.png    # Logo/favicon
 ```
 
-**Data Flow**: HTTP Request → Handler → Repository → GORM → SQLite
+**Data Flow**: User Input → Event Handlers (app.js) → Storage Module → LocalStorage → Canvas Rendering
 
-**Key Relationships**:
-- Employee has many Vacations (1:N)
-- Deleting an employee cascades to their vacations
+## Core Modules
 
-## API Endpoints
+### storage.js
+LocalStorage CRUD operations with auto-incrementing IDs:
+- `getEmployees()`, `saveEmployee()`, `deleteEmployee()`
+- `getVacations()`, `saveVacation()`, `deleteVacation()`
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET/POST | /api/employees | List/create employees |
-| GET/PUT/DELETE | /api/employees/:id | Employee CRUD |
-| GET/POST | /api/vacations | List/create vacations (supports `?from=&to=` filtering) |
-| GET/PUT/DELETE | /api/vacations/:id | Vacation CRUD |
-| GET | /api/calendar/generate | Generate PNG calendar (`?from=YYYY-MM-DD&to=YYYY-MM-DD`) |
+### calendar.js
+HTML5 Canvas rendering with two view modes:
+- **Timeline view**: For date ranges ≤61 days - horizontal bars showing vacation periods
+- **Monthly grid view**: For date ranges >61 days - calendar grid with colored dots
+
+### app.js
+UI logic including:
+- Form handling for employees and vacations
+- Flatpickr date pickers with range selection
+- Auto-sync of calendar dates with vacation data
+- Auto-generated employee colors
+
+### backup.js
+Data portability:
+- JSON export/import of all employees and vacations
+- Clear all data functionality
+
+## Data Structures
+
+**Employee** (stored in LocalStorage key: `employees`)
+```javascript
+{ id, name, color, created_at, updated_at }
+```
+
+**Vacation** (stored in LocalStorage key: `vacations`)
+```javascript
+{ id, employee_id, start_date, end_date, description, created_at, updated_at }
+```
 
 ## Technology Stack
 
-- **Backend**: Go 1.25, Gin v1.9, GORM v1.25
-- **Database**: SQLite (auto-created as `vacation_calendar.db`)
-- **Image Generation**: fogleman/gg (2D graphics), golang/freetype (fonts)
-- **Frontend**: Vanilla JavaScript, Fetch API, HTML templates
+- **HTML5 Canvas**: Calendar rendering (replaces server-side image generation)
+- **Vanilla JavaScript (ES6 Modules)**: No frameworks
+- **CSS3**: Styling with Grid/Flexbox
+- **LocalStorage API**: Client-side data persistence
+- **Flatpickr**: Date picker library (loaded from CDN)
+- **Roboto Font**: Bundled TTF files
 
-## Calendar Generation
+## Deployment
 
-The `internal/services/calendar.go` service generates PNG images with:
-- Employees as rows, days as columns
-- Weekend background highlighting
-- Color-coded vacation bars per employee
-- Configurable constants: `leftMargin: 150px`, `rowHeight: 40px`, `dayWidth: 30px`
+The application is deployed to GitHub Pages via GitHub Actions. The workflow (`.github/workflows/deploy.yml`) automatically deploys on push to master.
+
+## Key Features
+
+- Employee management with auto-generated colors
+- Vacation tracking with date ranges and descriptions
+- Interactive calendar visualization (PNG export supported)
+- Data backup/restore via JSON files
+- Fully offline-capable (all data stored locally)
