@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Vacation Calendar</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Team Vacation Calendar</h1>
+        </header>
+
+        <main>
+            <div class="panels">
+                <section class="panel">
+                    <h2>Employees</h2>
+                    <form id="employee-form" class="form">
+                        <input type="hidden" id="employee-id">
+                        <div class="form-group">
+                            <label for="employee-name">Name</label>
+                            <input type="text" id="employee-name" required placeholder="Enter employee name">
+                        </div>
+                        <div class="form-group">
+                            <label for="employee-color">Color</label>
+                            <input type="color" id="employee-color" value="#3498db">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Add Employee</button>
+                            <button type="button" id="cancel-employee" class="btn btn-secondary" style="display:none;">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="employees-list" class="list"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>Vacations</h2>
+                    <form id="vacation-form" class="form">
+                        <input type="hidden" id="vacation-id">
+                        <div class="form-group">
+                            <label for="vacation-employee">Employee</label>
+                            <select id="vacation-employee" required>
+                                <option value="">Select employee</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="vacation-start">Start Date</label>
+                                <input type="date" id="vacation-start" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="vacation-end">End Date</label>
+                                <input type="date" id="vacation-end" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="vacation-description">Description (optional)</label>
+                            <input type="text" id="vacation-description" placeholder="e.g., Summer vacation">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Add Vacation</button>
+                            <button type="button" id="cancel-vacation" class="btn btn-secondary" style="display:none;">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="vacations-list" class="list"></div>
+                </section>
+            </div>
+
+            <section class="panel calendar-panel">
+                <h2>Generate Calendar</h2>
+                <form id="calendar-form" class="form form-inline">
+                    <div class="form-group">
+                        <label for="calendar-from">From</label>
+                        <input type="date" id="calendar-from" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="calendar-to">To</label>
+                        <input type="date" id="calendar-to" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Generate Calendar</button>
+                </form>
+                <div id="calendar-preview">
+                    <p class="placeholder-text">Select a date range and click "Generate Calendar" to preview</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
