@@ -140,14 +140,48 @@ function getVacationDateRange() {
 }
 
 /**
- * Sync calendar date pickers with vacation date range
+ * Format date as YYYY-MM-DD in local timezone
+ */
+function formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * Round date to Monday (start of week)
+ */
+function roundToMonday(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00');
+    const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const diff = day === 0 ? -6 : 1 - day; // If Sunday, go back 6 days
+    date.setDate(date.getDate() + diff);
+    return formatLocalDate(date);
+}
+
+/**
+ * Round date to Sunday (end of week)
+ */
+function roundToSunday(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00');
+    const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const diff = day === 0 ? 0 : 7 - day; // If Sunday, stay; else go forward
+    date.setDate(date.getDate() + diff);
+    return formatLocalDate(date);
+}
+
+/**
+ * Sync calendar date pickers with vacation date range (rounded to week boundaries)
  */
 function syncCalendarDates() {
     const range = getVacationDateRange();
     if (range) {
-        calendarFromPicker.setDate(range.from);
-        calendarToPicker.setDate(range.to);
-        calendarToPicker.set('minDate', range.from);
+        const from = roundToMonday(range.from);
+        const to = roundToSunday(range.to);
+        calendarFromPicker.setDate(from);
+        calendarToPicker.setDate(to);
+        calendarToPicker.set('minDate', from);
     }
 }
 
