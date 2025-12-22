@@ -1,12 +1,21 @@
-const API_BASE = '/api';
+/**
+ * Main application logic
+ * Replaces API calls with LocalStorage operations
+ */
+
+import * as Storage from './storage.js';
+import * as Calendar from './calendar.js';
+import * as Backup from './backup.js';
 
 let vacationStartPicker, vacationEndPicker;
 let calendarFromPicker, calendarToPicker;
 
 document.addEventListener('DOMContentLoaded', () => {
+    Storage.initStorage();
     loadEmployees();
     loadVacations();
     setupEventListeners();
+    setupBackupListeners();
     initDatePickers();
 });
 
@@ -16,6 +25,44 @@ function setupEventListeners() {
     document.getElementById('calendar-form').addEventListener('submit', handleCalendarGenerate);
     document.getElementById('cancel-employee').addEventListener('click', resetEmployeeForm);
     document.getElementById('cancel-vacation').addEventListener('click', resetVacationForm);
+}
+
+function setupBackupListeners() {
+    document.getElementById('export-btn').addEventListener('click', () => {
+        Backup.exportData();
+    });
+
+    document.getElementById('import-btn').addEventListener('click', () => {
+        document.getElementById('import-file').click();
+    });
+
+    document.getElementById('import-file').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const result = await Backup.importData(file);
+        if (result.success) {
+            alert(result.message);
+            loadEmployees();
+            loadVacations();
+        } else {
+            alert('Import failed: ' + result.message);
+        }
+
+        // Reset file input
+        e.target.value = '';
+    });
+
+    document.getElementById('clear-btn').addEventListener('click', () => {
+        if (Backup.clearAllData()) {
+            loadEmployees();
+            loadVacations();
+            // Clear calendar preview
+            document.getElementById('calendar-preview').innerHTML =
+                '<p class="placeholder-text">Select a date range and click "Generate Calendar" to preview</p>';
+            document.getElementById('calendar-actions').style.display = 'none';
+        }
+    });
 }
 
 function initDatePickers() {
@@ -59,15 +106,10 @@ function formatDate(date) {
     return date.toISOString().split('T')[0];
 }
 
-async function loadEmployees() {
-    try {
-        const response = await fetch(`${API_BASE}/employees`);
-        const employees = await response.json();
-        renderEmployeesList(employees);
-        updateEmployeeSelect(employees);
-    } catch (error) {
-        console.error('Error loading employees:', error);
-    }
+function loadEmployees() {
+    const employees = Storage.getEmployees();
+    renderEmployeesList(employees);
+    updateEmployeeSelect(employees);
 }
 
 function renderEmployeesList(employees) {
@@ -82,10 +124,10 @@ function renderEmployeesList(employees) {
         <div class="list-item">
             <div class="list-item-info">
                 <span class="color-badge" style="background-color: ${emp.color}"></span>
-                <span>${emp.name}</span>
+                <span>${escapeHtml(emp.name)}</span>
             </div>
             <div class="list-item-actions">
-                <button class="btn btn-secondary btn-sm" onclick="editEmployee(${emp.id}, '${emp.name}', '${emp.color}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editEmployee(${emp.id}, '${escapeHtml(emp.name)}', '${emp.color}')">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Delete</button>
             </div>
         </div>
@@ -100,7 +142,7 @@ function updateEmployeeSelect(employees) {
 
     if (employees && employees.length > 0) {
         employees.forEach(emp => {
-            select.innerHTML += `<option value="${emp.id}">${emp.name}</option>`;
+            select.innerHTML += `<option value="${emp.id}">${escapeHtml(emp.name)}</option>`;
         });
     }
 
@@ -109,44 +151,43 @@ function updateEmployeeSelect(employees) {
     }
 }
 
-async function handleEmployeeSubmit(e) {
+function handleEmployeeSubmit(e) {
     e.preventDefault();
 
     const id = document.getElementById('employee-id').value;
-    const name = document.getElementById('employee-name').value;
+    const name = document.getElementById('employee-name').value.trim();
     const color = document.getElementById('employee-color').value;
 
-    try {
-        const url = id ? `${API_BASE}/employees/${id}` : `${API_BASE}/employees`;
-        const method = id ? 'PUT' : 'POST';
+    if (!name) {
+        alert('Please enter an employee name');
+        return;
+    }
 
-        const response = await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, color })
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            alert(error.error || 'Error saving employee');
+    if (id) {
+        // Update existing
+        const updated = Storage.updateEmployee(parseInt(id), name, color);
+        if (!updated) {
+            alert('Employee not found');
             return;
         }
-
-        resetEmployeeForm();
-        loadEmployees();
-    } catch (error) {
-        console.error('Error saving employee:', error);
-        alert('Error saving employee');
+    } else {
+        // Create new
+        Storage.createEmployee(name, color);
     }
+
+    resetEmployeeForm();
+    loadEmployees();
+    loadVacations(); // Refresh to update employee names in vacation list
 }
 
-function editEmployee(id, name, color) {
+// Expose to global scope for onclick handlers
+window.editEmployee = function(id, name, color) {
     document.getElementById('employee-id').value = id;
     document.getElementById('employee-name').value = name;
     document.getElementById('employee-color').value = color;
     document.querySelector('#employee-form button[type="submit"]').textContent = 'Update Employee';
     document.getElementById('cancel-employee').style.display = 'inline-block';
-}
+};
 
 function resetEmployeeForm() {
     document.getElementById('employee-id').value = '';
@@ -156,32 +197,23 @@ function resetEmployeeForm() {
     document.getElementById('cancel-employee').style.display = 'none';
 }
 
-async function deleteEmployee(id) {
+// Expose to global scope for onclick handlers
+window.deleteEmployee = function(id) {
     if (!confirm('Delete this employee and all their vacations?')) return;
 
-    try {
-        const response = await fetch(`${API_BASE}/employees/${id}`, { method: 'DELETE' });
-        if (!response.ok) {
-            const error = await response.json();
-            alert(error.error || 'Error deleting employee');
-            return;
-        }
-        loadEmployees();
-        loadVacations();
-    } catch (error) {
-        console.error('Error deleting employee:', error);
-        alert('Error deleting employee');
+    const deleted = Storage.deleteEmployee(id);
+    if (!deleted) {
+        alert('Employee not found');
+        return;
     }
-}
 
-async function loadVacations() {
-    try {
-        const response = await fetch(`${API_BASE}/vacations`);
-        const vacations = await response.json();
-        renderVacationsList(vacations);
-    } catch (error) {
-        console.error('Error loading vacations:', error);
-    }
+    loadEmployees();
+    loadVacations();
+};
+
+function loadVacations() {
+    const vacations = Storage.getVacations();
+    renderVacationsList(vacations);
 }
 
 function renderVacationsList(vacations) {
@@ -197,13 +229,13 @@ function renderVacationsList(vacations) {
             <div class="list-item-info">
                 <span class="color-badge" style="background-color: ${v.employee?.color || '#3498db'}"></span>
                 <div>
-                    <strong>${v.employee?.name || 'Unknown'}</strong>
+                    <strong>${escapeHtml(v.employee?.name || 'Unknown')}</strong>
                     <div class="vacation-dates">${formatDisplayDate(v.start_date)} - ${formatDisplayDate(v.end_date)}</div>
-                    ${v.description ? `<small>${v.description}</small>` : ''}
+                    ${v.description ? `<small>${escapeHtml(v.description)}</small>` : ''}
                 </div>
             </div>
             <div class="list-item-actions">
-                <button class="btn btn-secondary btn-sm" onclick="editVacation(${v.id}, ${v.employee_id}, '${v.start_date.split('T')[0]}', '${v.end_date.split('T')[0]}', '${v.description || ''}')">Edit</button>
+                <button class="btn btn-secondary btn-sm" onclick="editVacation(${v.id}, ${v.employee_id}, '${v.start_date}', '${v.end_date}', '${escapeHtml(v.description || '')}')">Edit</button>
                 <button class="btn btn-danger btn-sm" onclick="deleteVacation(${v.id})">Delete</button>
             </div>
         </div>
@@ -211,49 +243,52 @@ function renderVacationsList(vacations) {
 }
 
 function formatDisplayDate(dateStr) {
-    const date = new Date(dateStr);
+    const date = new Date(dateStr + 'T00:00:00');
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-async function handleVacationSubmit(e) {
+function handleVacationSubmit(e) {
     e.preventDefault();
 
     const id = document.getElementById('vacation-id').value;
     const employee_id = parseInt(document.getElementById('vacation-employee').value);
     const start_date = document.getElementById('vacation-start').value;
     const end_date = document.getElementById('vacation-end').value;
-    const description = document.getElementById('vacation-description').value;
+    const description = document.getElementById('vacation-description').value.trim();
 
     if (!employee_id) {
         alert('Please select an employee');
         return;
     }
 
-    try {
-        const url = id ? `${API_BASE}/vacations/${id}` : `${API_BASE}/vacations`;
-        const method = id ? 'PUT' : 'POST';
+    if (!start_date || !end_date) {
+        alert('Please select start and end dates');
+        return;
+    }
 
-        const response = await fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ employee_id, start_date, end_date, description })
-        });
+    if (new Date(end_date) < new Date(start_date)) {
+        alert('End date must be after start date');
+        return;
+    }
 
-        if (!response.ok) {
-            const error = await response.json();
-            alert(error.error || 'Error saving vacation');
+    if (id) {
+        // Update existing
+        const updated = Storage.updateVacation(parseInt(id), employee_id, start_date, end_date, description);
+        if (!updated) {
+            alert('Vacation not found');
             return;
         }
-
-        resetVacationForm();
-        loadVacations();
-    } catch (error) {
-        console.error('Error saving vacation:', error);
-        alert('Error saving vacation');
+    } else {
+        // Create new
+        Storage.createVacation(employee_id, start_date, end_date, description);
     }
+
+    resetVacationForm();
+    loadVacations();
 }
 
-function editVacation(id, employeeId, startDate, endDate, description) {
+// Expose to global scope for onclick handlers
+window.editVacation = function(id, employeeId, startDate, endDate, description) {
     document.getElementById('vacation-id').value = id;
     document.getElementById('vacation-employee').value = employeeId;
     vacationStartPicker.setDate(startDate);
@@ -262,7 +297,7 @@ function editVacation(id, employeeId, startDate, endDate, description) {
     document.getElementById('vacation-description').value = description;
     document.querySelector('#vacation-form button[type="submit"]').textContent = 'Update Vacation';
     document.getElementById('cancel-vacation').style.display = 'inline-block';
-}
+};
 
 function resetVacationForm() {
     document.getElementById('vacation-id').value = '';
@@ -275,22 +310,18 @@ function resetVacationForm() {
     document.getElementById('cancel-vacation').style.display = 'none';
 }
 
-async function deleteVacation(id) {
+// Expose to global scope for onclick handlers
+window.deleteVacation = function(id) {
     if (!confirm('Delete this vacation?')) return;
 
-    try {
-        const response = await fetch(`${API_BASE}/vacations/${id}`, { method: 'DELETE' });
-        if (!response.ok) {
-            const error = await response.json();
-            alert(error.error || 'Error deleting vacation');
-            return;
-        }
-        loadVacations();
-    } catch (error) {
-        console.error('Error deleting vacation:', error);
-        alert('Error deleting vacation');
+    const deleted = Storage.deleteVacation(id);
+    if (!deleted) {
+        alert('Vacation not found');
+        return;
     }
-}
+
+    loadVacations();
+};
 
 async function handleCalendarGenerate(e) {
     e.preventDefault();
@@ -304,31 +335,43 @@ async function handleCalendarGenerate(e) {
     }
 
     const preview = document.getElementById('calendar-preview');
+    const actions = document.getElementById('calendar-actions');
+
     preview.innerHTML = '<p>Generating calendar...</p>';
+    actions.style.display = 'none';
 
     try {
-        const url = `${API_BASE}/calendar/generate?from=${from}&to=${to}`;
-        const response = await fetch(url);
+        const employees = Storage.getEmployees();
+        const vacations = Storage.getVacationsByDateRange(from, to);
 
-        if (!response.ok) {
-            const error = await response.json();
-            alert(error.error || 'Error generating calendar');
-            preview.innerHTML = '<p class="placeholder-text">Error generating calendar</p>';
+        if (employees.length === 0) {
+            preview.innerHTML = '<p class="placeholder-text">No employees found. Add employees first.</p>';
             return;
         }
 
-        const blob = await response.blob();
-        const imageUrl = URL.createObjectURL(blob);
+        const { canvas, dataUrl } = await Calendar.generateCalendar(from, to, employees, vacations);
 
-        preview.innerHTML = `
-            <div>
-                <img src="${imageUrl}" alt="Vacation Calendar">
-                <br>
-                <a href="${url}" download="vacation_calendar.png" class="download-link">Download PNG</a>
-            </div>
-        `;
+        // Clear and display canvas
+        preview.innerHTML = '';
+        preview.appendChild(canvas);
+
+        // Setup download link
+        const downloadLink = document.getElementById('download-png');
+        downloadLink.href = dataUrl;
+        downloadLink.download = `vacation_calendar_${from}_${to}.png`;
+        actions.style.display = 'block';
+
     } catch (error) {
         console.error('Error generating calendar:', error);
         preview.innerHTML = '<p class="placeholder-text">Error generating calendar</p>';
     }
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }

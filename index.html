@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Team Vacation Calendar</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preload" href="fonts/Roboto-Regular.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="preload" href="fonts/Roboto-Bold.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 </head>
 <body>
@@ -80,11 +82,25 @@
                 <div id="calendar-preview">
                     <p class="placeholder-text">Select a date range and click "Generate Calendar" to preview</p>
                 </div>
+                <div id="calendar-actions" style="display:none;">
+                    <a id="download-png" class="btn btn-primary" download="vacation_calendar.png">Download PNG</a>
+                </div>
+            </section>
+
+            <section class="panel backup-panel">
+                <h2>Data Management</h2>
+                <div class="backup-actions">
+                    <button id="export-btn" class="btn btn-primary">Export Data (JSON)</button>
+                    <button id="import-btn" class="btn btn-secondary">Import Data</button>
+                    <input type="file" id="import-file" accept=".json" style="display:none;">
+                    <button id="clear-btn" class="btn btn-danger">Clear All Data</button>
+                </div>
+                <p class="help-text">Data is stored locally in your browser. Use Export to backup before clearing browser data.</p>
             </section>
         </main>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="/static/js/app.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>
