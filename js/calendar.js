@@ -778,7 +778,7 @@ function drawMonthlyLegend(ctx, vacations, startY, width) {
 }
 
 /**
- * Draw side-by-side legend: Holidays on left, Vacation Details on right
+ * Draw side-by-side legend: Vacation Details on left, Holidays on right (aligned to right border)
  */
 function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryName) {
     const hasHolidays = holidays && holidays.length > 0;
@@ -800,59 +800,18 @@ function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryNa
     const rightColumnX = width / 2 + 10;
     const columnWidth = width / 2 - 30;
 
-    // Draw Holidays on the left
-    if (hasHolidays) {
-        ctx.fillStyle = 'black';
-        ctx.font = 'bold 14px Roboto, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`Public Holidays (${countryName}):`, leftColumnX, startY + 20);
-
-        ctx.font = '12px Roboto, sans-serif';
-        holidays.forEach((h, i) => {
-            const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
-            let x = leftColumnX;
-
-            // Holiday color badge
-            ctx.fillStyle = HOLIDAY_COLOR;
-            roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
-            ctx.fill();
-            ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-            x += LEGEND_BADGE_SIZE + 10;
-
-            // Date
-            ctx.fillStyle = '#666';
-            const dateStr = formatLegendDate(h.date);
-            ctx.fillText(dateStr, x, y);
-            x += ctx.measureText(dateStr).width + 10;
-
-            // Holiday name (truncate if too long)
-            ctx.fillStyle = 'black';
-            ctx.font = 'bold 12px Roboto, sans-serif';
-            const maxNameWidth = columnWidth - (x - leftColumnX) - 10;
-            let name = h.name;
-            while (ctx.measureText(name).width > maxNameWidth && name.length > 3) {
-                name = name.slice(0, -4) + '...';
-            }
-            ctx.fillText(name, x, y);
-            ctx.font = '12px Roboto, sans-serif';
-        });
-    }
-
-    // Draw Vacation Details on the right
+    // Draw Vacation Details on the left
     if (hasVacations) {
         ctx.fillStyle = 'black';
         ctx.font = 'bold 14px Roboto, sans-serif';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText('Vacation Details:', rightColumnX, startY + 20);
+        ctx.fillText('Vacation Details:', leftColumnX, startY + 20);
 
         ctx.font = '12px Roboto, sans-serif';
         vacations.forEach((v, i) => {
             const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
-            let x = rightColumnX;
+            let x = leftColumnX;
 
             // Color badge
             ctx.fillStyle = parseHexColor(v.employee?.color);
@@ -871,14 +830,14 @@ function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryNa
             ctx.font = '12px Roboto, sans-serif';
             ctx.fillStyle = '#666';
             const dateRange = `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`;
-            const maxWidth = width - x - 20;
+            const maxWidth = rightColumnX - x - 20;
             if (ctx.measureText(dateRange).width <= maxWidth) {
                 ctx.fillText(dateRange, x, y);
                 x += ctx.measureText(dateRange).width + 10;
 
                 // Description (if present and fits)
                 if (v.description) {
-                    const remainingWidth = width - x - 20;
+                    const remainingWidth = rightColumnX - x - 10;
                     if (remainingWidth > 50) {
                         ctx.fillStyle = '#888';
                         ctx.font = 'italic 12px Roboto, sans-serif';
@@ -892,6 +851,61 @@ function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryNa
             } else {
                 ctx.fillText(dateRange, x, y);
             }
+        });
+    }
+
+    // Draw Holidays on the right (aligned to right border)
+    if (hasHolidays) {
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 14px Roboto, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Public Holidays (${countryName}):`, width - 20, startY + 20);
+
+        ctx.font = '12px Roboto, sans-serif';
+        holidays.forEach((h, i) => {
+            const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
+            const rightEdge = width - 20;
+
+            // Build the content from right to left
+            // Holiday name (bold)
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 12px Roboto, sans-serif';
+            let name = h.name;
+            const maxNameWidth = columnWidth - 100; // Reserve space for date and badge
+            while (ctx.measureText(name).width > maxNameWidth && name.length > 3) {
+                name = name.slice(0, -4) + '...';
+            }
+            const nameWidth = ctx.measureText(name).width;
+
+            // Date
+            ctx.font = '12px Roboto, sans-serif';
+            const dateStr = formatLegendDate(h.date);
+            const dateWidth = ctx.measureText(dateStr).width;
+
+            // Calculate positions (right-aligned)
+            const nameX = rightEdge - nameWidth;
+            const dateX = nameX - 10 - dateWidth;
+            const badgeX = dateX - 10 - LEGEND_BADGE_SIZE;
+
+            // Draw holiday color badge
+            ctx.fillStyle = HOLIDAY_COLOR;
+            roundRect(ctx, badgeX, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+            ctx.fill();
+            ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Draw date
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#666';
+            ctx.font = '12px Roboto, sans-serif';
+            ctx.fillText(dateStr, dateX, y);
+
+            // Draw holiday name
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 12px Roboto, sans-serif';
+            ctx.fillText(name, nameX, y);
         });
     }
 
