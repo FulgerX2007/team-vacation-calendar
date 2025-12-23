@@ -28,7 +28,7 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Monthly grid view constants
-const MONTH_THRESHOLD_DAYS = 61;
+const MONTH_THRESHOLD_DAYS = 32;
 const MONTHS_PER_ROW = 3;
 const MONTH_GRID_PADDING = 20;
 const MONTH_TITLE_HEIGHT = 30;
@@ -279,14 +279,17 @@ function drawBackground(ctx, width, height) {
 }
 
 /**
- * Draw title "Team Vacation Calendar"
+ * Draw title "Team Vacation Calendar" with date range
  */
-function drawTitle(ctx, width) {
+function drawTitle(ctx, width, fromDate, toDate) {
     ctx.fillStyle = 'black';
     ctx.font = 'bold 18px Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Team Vacation Calendar', width / 2, 25);
+
+    const fromStr = fromDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const toStr = toDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    ctx.fillText(`Team Vacation Calendar: ${fromStr} - ${toStr}`, width / 2, 25);
 }
 
 /**
@@ -778,7 +781,7 @@ function drawMonthlyLegend(ctx, vacations, startY, width) {
 }
 
 /**
- * Draw side-by-side legend: Vacation Details on left, Holidays on right (aligned to right border)
+ * Draw side-by-side legend: Vacation Details on left, Holidays on right (both left-aligned)
  */
 function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryName) {
     const hasHolidays = holidays && holidays.length > 0;
@@ -854,58 +857,45 @@ function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryNa
         });
     }
 
-    // Draw Holidays on the right (aligned to right border)
+    // Draw Holidays on the right column (left-aligned within column)
     if (hasHolidays) {
         ctx.fillStyle = 'black';
         ctx.font = 'bold 14px Roboto, sans-serif';
-        ctx.textAlign = 'right';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`Public Holidays (${countryName}):`, width - 20, startY + 20);
+        ctx.fillText(`Public Holidays (${countryName}):`, rightColumnX, startY + 20);
 
         ctx.font = '12px Roboto, sans-serif';
         holidays.forEach((h, i) => {
             const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
-            const rightEdge = width - 20;
+            let x = rightColumnX;
 
-            // Build the content from right to left
-            // Holiday name (bold)
-            ctx.fillStyle = 'black';
-            ctx.font = 'bold 12px Roboto, sans-serif';
-            let name = h.name;
-            const maxNameWidth = columnWidth - 100; // Reserve space for date and badge
-            while (ctx.measureText(name).width > maxNameWidth && name.length > 3) {
-                name = name.slice(0, -4) + '...';
-            }
-            const nameWidth = ctx.measureText(name).width;
-
-            // Date
-            ctx.font = '12px Roboto, sans-serif';
-            const dateStr = formatLegendDate(h.date);
-            const dateWidth = ctx.measureText(dateStr).width;
-
-            // Calculate positions (right-aligned)
-            const nameX = rightEdge - nameWidth;
-            const dateX = nameX - 10 - dateWidth;
-            const badgeX = dateX - 10 - LEGEND_BADGE_SIZE;
-
-            // Draw holiday color badge
+            // Holiday color badge
             ctx.fillStyle = HOLIDAY_COLOR;
-            roundRect(ctx, badgeX, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+            roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
             ctx.fill();
             ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
             ctx.lineWidth = 1;
             ctx.stroke();
+            x += LEGEND_BADGE_SIZE + 10;
 
-            // Draw date
+            // Date
             ctx.textAlign = 'left';
             ctx.fillStyle = '#666';
             ctx.font = '12px Roboto, sans-serif';
-            ctx.fillText(dateStr, dateX, y);
+            const dateStr = formatLegendDate(h.date);
+            ctx.fillText(dateStr, x, y);
+            x += ctx.measureText(dateStr).width + 10;
 
-            // Draw holiday name
+            // Holiday name (truncate if too long)
             ctx.fillStyle = 'black';
             ctx.font = 'bold 12px Roboto, sans-serif';
-            ctx.fillText(name, nameX, y);
+            const maxNameWidth = width - x - 20;
+            let name = h.name;
+            while (ctx.measureText(name).width > maxNameWidth && name.length > 3) {
+                name = name.slice(0, -4) + '...';
+            }
+            ctx.fillText(name, x, y);
         });
     }
 
@@ -1006,7 +996,7 @@ async function generateTimelineCalendar(fromDate, toDate, employees, vacations, 
 
     // Draw all layers in order
     drawBackground(ctx, width, height);
-    drawTitle(ctx, width);
+    drawTitle(ctx, width, fromDate, toDate);
     drawWeekendBackground(ctx, fromDate, days, employees.length);
     drawHolidayBackground(ctx, fromDate, days, employees.length, holidayMap);
     drawDateHeaders(ctx, fromDate, days);
