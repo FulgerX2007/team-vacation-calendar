@@ -207,16 +207,14 @@ function calculateMonthlyGridDimensions(months, vacationCount, holidayCount = 0)
     const gridWidth = numCols * monthWidth + (numCols - 1) * MONTH_HORIZONTAL_GAP;
     const gridHeight = numRows * monthHeight + (numRows - 1) * MONTH_VERTICAL_GAP;
 
-    const vacationLegendHeight = vacationCount > 0
-        ? LEGEND_PADDING + 45 + vacationCount * LEGEND_ROW_HEIGHT
-        : 0;
-
-    const holidayLegendHeight = holidayCount > 0
-        ? LEGEND_PADDING + 45 + holidayCount * LEGEND_ROW_HEIGHT
+    // Side-by-side legend: use max of the two columns
+    const maxLegendRows = Math.max(vacationCount, holidayCount);
+    const legendHeight = maxLegendRows > 0
+        ? LEGEND_PADDING + 45 + maxLegendRows * LEGEND_ROW_HEIGHT
         : 0;
 
     const width = MONTH_GRID_PADDING * 2 + gridWidth;
-    const height = TOP_MARGIN + gridHeight + BOTTOM_PADDING + vacationLegendHeight + holidayLegendHeight + MONTH_GRID_PADDING;
+    const height = TOP_MARGIN + gridHeight + BOTTOM_PADDING + legendHeight + MONTH_GRID_PADDING;
 
     return {
         width: Math.max(width, 600),
@@ -227,7 +225,7 @@ function calculateMonthlyGridDimensions(months, vacationCount, holidayCount = 0)
         gridHeight,
         numRows,
         numCols,
-        vacationLegendHeight
+        legendHeight
     };
 }
 
@@ -780,10 +778,13 @@ function drawMonthlyLegend(ctx, vacations, startY, width) {
 }
 
 /**
- * Draw holiday legend section
+ * Draw side-by-side legend: Holidays on left, Vacation Details on right
  */
-function drawHolidayLegend(ctx, holidays, startY, width, countryName) {
-    if (!holidays || holidays.length === 0) {
+function drawSideBySideLegend(ctx, holidays, vacations, startY, width, countryName) {
+    const hasHolidays = holidays && holidays.length > 0;
+    const hasVacations = vacations && vacations.length > 0;
+
+    if (!hasHolidays && !hasVacations) {
         return startY;
     }
 
@@ -795,42 +796,111 @@ function drawHolidayLegend(ctx, holidays, startY, width, countryName) {
     ctx.lineTo(width - 20, startY);
     ctx.stroke();
 
-    // Draw legend title
-    ctx.fillStyle = 'black';
-    ctx.font = 'bold 14px Roboto, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`Public Holidays (${countryName}):`, 20, startY + 20);
+    const leftColumnX = 20;
+    const rightColumnX = width / 2 + 10;
+    const columnWidth = width / 2 - 30;
 
-    // Draw each holiday
-    ctx.font = '12px Roboto, sans-serif';
-    holidays.forEach((h, i) => {
-        const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
-        let x = 20;
-
-        // Holiday color badge
-        ctx.fillStyle = HOLIDAY_COLOR;
-        roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
-        ctx.fill();
-        ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        x += LEGEND_BADGE_SIZE + 10;
-
-        // Date
-        ctx.fillStyle = '#666';
-        const dateStr = formatLegendDate(h.date);
-        ctx.fillText(dateStr, x, y);
-        x += ctx.measureText(dateStr).width + 15;
-
-        // Holiday name
+    // Draw Holidays on the left
+    if (hasHolidays) {
         ctx.fillStyle = 'black';
-        ctx.font = 'bold 12px Roboto, sans-serif';
-        ctx.fillText(h.name, x, y);
-        ctx.font = '12px Roboto, sans-serif';
-    });
+        ctx.font = 'bold 14px Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Public Holidays (${countryName}):`, leftColumnX, startY + 20);
 
-    return startY + 45 + holidays.length * LEGEND_ROW_HEIGHT;
+        ctx.font = '12px Roboto, sans-serif';
+        holidays.forEach((h, i) => {
+            const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
+            let x = leftColumnX;
+
+            // Holiday color badge
+            ctx.fillStyle = HOLIDAY_COLOR;
+            roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+            ctx.fill();
+            ctx.strokeStyle = HOLIDAY_BORDER_COLOR;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            x += LEGEND_BADGE_SIZE + 10;
+
+            // Date
+            ctx.fillStyle = '#666';
+            const dateStr = formatLegendDate(h.date);
+            ctx.fillText(dateStr, x, y);
+            x += ctx.measureText(dateStr).width + 10;
+
+            // Holiday name (truncate if too long)
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 12px Roboto, sans-serif';
+            const maxNameWidth = columnWidth - (x - leftColumnX) - 10;
+            let name = h.name;
+            while (ctx.measureText(name).width > maxNameWidth && name.length > 3) {
+                name = name.slice(0, -4) + '...';
+            }
+            ctx.fillText(name, x, y);
+            ctx.font = '12px Roboto, sans-serif';
+        });
+    }
+
+    // Draw Vacation Details on the right
+    if (hasVacations) {
+        ctx.fillStyle = 'black';
+        ctx.font = 'bold 14px Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Vacation Details:', rightColumnX, startY + 20);
+
+        ctx.font = '12px Roboto, sans-serif';
+        vacations.forEach((v, i) => {
+            const y = startY + 45 + i * LEGEND_ROW_HEIGHT;
+            let x = rightColumnX;
+
+            // Color badge
+            ctx.fillStyle = parseHexColor(v.employee?.color);
+            roundRect(ctx, x, y - LEGEND_BADGE_SIZE/2, LEGEND_BADGE_SIZE, LEGEND_BADGE_SIZE, 3);
+            ctx.fill();
+            x += LEGEND_BADGE_SIZE + 10;
+
+            // Employee name (bold)
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 12px Roboto, sans-serif';
+            const name = v.employee?.name || 'Unknown';
+            ctx.fillText(name, x, y);
+            x += ctx.measureText(name).width + 10;
+
+            // Date range
+            ctx.font = '12px Roboto, sans-serif';
+            ctx.fillStyle = '#666';
+            const dateRange = `${formatLegendDate(v.start_date)} - ${formatLegendDate(v.end_date)}`;
+            const maxWidth = width - x - 20;
+            if (ctx.measureText(dateRange).width <= maxWidth) {
+                ctx.fillText(dateRange, x, y);
+                x += ctx.measureText(dateRange).width + 10;
+
+                // Description (if present and fits)
+                if (v.description) {
+                    const remainingWidth = width - x - 20;
+                    if (remainingWidth > 50) {
+                        ctx.fillStyle = '#888';
+                        ctx.font = 'italic 12px Roboto, sans-serif';
+                        let desc = `- ${v.description}`;
+                        while (ctx.measureText(desc).width > remainingWidth && desc.length > 5) {
+                            desc = desc.slice(0, -4) + '...';
+                        }
+                        ctx.fillText(desc, x, y);
+                    }
+                }
+            } else {
+                ctx.fillText(dateRange, x, y);
+            }
+        });
+    }
+
+    // Return the end Y position based on the taller column
+    const holidayRows = hasHolidays ? holidays.length : 0;
+    const vacationRows = hasVacations ? vacations.length : 0;
+    const maxRows = Math.max(holidayRows, vacationRows);
+
+    return startY + 45 + maxRows * LEGEND_ROW_HEIGHT;
 }
 
 /**
@@ -863,13 +933,9 @@ async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacation
     drawMonthlyTitle(ctx, dimensions.width, fromDate, toDate);
     drawMonthlyGridView(ctx, months, dimensions, vacationDayMap, fromDate, toDate, holidayMap);
 
-    // Draw vacation legend at the bottom
-    const vacationLegendStartY = TOP_MARGIN + dimensions.gridHeight + BOTTOM_PADDING;
-    drawMonthlyLegend(ctx, vacations, vacationLegendStartY, dimensions.width);
-
-    // Draw holiday legend below vacation legend
-    const holidayLegendStartY = vacationLegendStartY + dimensions.vacationLegendHeight;
-    drawHolidayLegend(ctx, holidays, holidayLegendStartY, dimensions.width, countryName || 'Selected Country');
+    // Draw side-by-side legend: Holidays on left, Vacations on right
+    const legendStartY = TOP_MARGIN + dimensions.gridHeight + BOTTOM_PADDING;
+    drawSideBySideLegend(ctx, holidays, vacations, legendStartY, dimensions.width, countryName || 'Selected Country');
 
     // Generate data URL for download
     const dataUrl = canvas.toDataURL('image/png');
@@ -883,20 +949,16 @@ async function generateMonthlyGridCalendar(fromDate, toDate, employees, vacation
 async function generateTimelineCalendar(fromDate, toDate, employees, vacations, holidayMap, holidays, countryName) {
     const days = calculateDays(fromDate, toDate);
 
-    // Calculate vacation legend height
-    const vacationLegendHeight = vacations.length > 0
-        ? LEGEND_PADDING + 45 + vacations.length * LEGEND_ROW_HEIGHT
-        : 0;
-
-    // Calculate holiday legend height
+    // Side-by-side legend: use max of the two columns
     const holidayCount = holidays ? holidays.length : 0;
-    const holidayLegendHeight = holidayCount > 0
-        ? LEGEND_PADDING + 45 + holidayCount * LEGEND_ROW_HEIGHT
+    const maxLegendRows = Math.max(vacations.length, holidayCount);
+    const legendHeight = maxLegendRows > 0
+        ? LEGEND_PADDING + 45 + maxLegendRows * LEGEND_ROW_HEIGHT
         : 0;
 
     // Calculate canvas dimensions
     let width = LEFT_MARGIN + days * DAY_WIDTH + 20;
-    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING + vacationLegendHeight + holidayLegendHeight;
+    let height = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING + legendHeight;
 
     // Enforce minimum dimensions
     if (width < 800) width = 800;
@@ -937,13 +999,9 @@ async function generateTimelineCalendar(fromDate, toDate, employees, vacations, 
     drawEmployeeRows(ctx, employees, vacationMap, fromDate, toDate, days);
     drawGrid(ctx, days, employees.length);
 
-    // Draw vacation legend at the bottom
-    const vacationLegendStartY = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
-    drawLegend(ctx, vacations, vacationLegendStartY, width);
-
-    // Draw holiday legend below vacation legend
-    const holidayLegendStartY = vacationLegendStartY + vacationLegendHeight;
-    drawHolidayLegend(ctx, holidays, holidayLegendStartY, width, countryName || 'Selected Country');
+    // Draw side-by-side legend: Holidays on left, Vacations on right
+    const legendStartY = TOP_MARGIN + HEADER_HEIGHT + employees.length * ROW_HEIGHT + BOTTOM_PADDING;
+    drawSideBySideLegend(ctx, holidays, vacations, legendStartY, width, countryName || 'Selected Country');
 
     // Generate data URL for download
     const dataUrl = canvas.toDataURL('image/png');
