@@ -17,6 +17,7 @@ let colorIndex = 0;
 
 let vacationStartPicker, vacationEndPicker;
 let calendarFromPicker, calendarToPicker;
+let currentCalendarDataUrl = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     Storage.initStorage();
@@ -35,6 +36,7 @@ function setupEventListeners() {
     document.getElementById('calendar-form').addEventListener('submit', handleCalendarGenerate);
     document.getElementById('cancel-employee').addEventListener('click', resetEmployeeForm);
     document.getElementById('cancel-vacation').addEventListener('click', resetVacationForm);
+    document.getElementById('copy-clipboard').addEventListener('click', copyToClipboard);
 }
 
 function setupBackupListeners() {
@@ -483,6 +485,9 @@ async function handleCalendarGenerate(e) {
 
         const { canvas, dataUrl } = await Calendar.generateCalendar(from, to, employees, vacations, holidays, countryName);
 
+        // Store data URL for clipboard
+        currentCalendarDataUrl = dataUrl;
+
         // Clear and display canvas
         preview.innerHTML = '';
         preview.appendChild(canvas);
@@ -491,7 +496,8 @@ async function handleCalendarGenerate(e) {
         const downloadLink = document.getElementById('download-png');
         downloadLink.href = dataUrl;
         downloadLink.download = `vacation_calendar_${from}_${to}.png`;
-        actions.style.display = 'block';
+
+        actions.style.display = 'flex';
 
     } catch (error) {
         console.error('Error generating calendar:', error);
@@ -507,3 +513,35 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+/**
+ * Copy calendar image to clipboard
+ */
+async function copyToClipboard() {
+    if (!currentCalendarDataUrl) return;
+
+    try {
+        // Convert data URL to blob
+        const response = await fetch(currentCalendarDataUrl);
+        const blob = await response.blob();
+
+        // Use Clipboard API to copy image
+        await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+        ]);
+
+        // Visual feedback
+        const btn = document.getElementById('copy-clipboard');
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.classList.remove('copied');
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy to clipboard:', err);
+        alert('Failed to copy to clipboard. Your browser may not support this feature.');
+    }
+}
+

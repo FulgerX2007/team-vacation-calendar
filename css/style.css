@@ -279,6 +279,18 @@ header h1 {
 #calendar-actions {
     margin-top: 15px;
     text-align: center;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+#copy-clipboard.copied {
+    background-color: #28a745;
+}
+
+#copy-clipboard.copied:hover {
+    background-color: #218838;
 }
 
 .placeholder-text {
