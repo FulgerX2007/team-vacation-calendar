@@ -22,6 +22,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Inject version into footer
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          sed -i "s/>dev</>$COMMIT_HASH</g" index.html
       - uses: actions/configure-pages@v4
         with:
           enablement: true

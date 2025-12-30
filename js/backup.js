@@ -14,6 +14,7 @@ export function exportData() {
 
     const exportObj = {
         version: BACKUP_VERSION,
+        source: 'https://fulgerx2007.github.io/team-vacation-calendar/',
         exported_at: new Date().toISOString(),
         employees: data.employees,
         vacations: data.vacations
