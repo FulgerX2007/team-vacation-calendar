@@ -29,7 +29,10 @@ jobs:
         run: |
           COMMIT_HASH=${GITHUB_SHA::7}
           echo "Injecting version: $COMMIT_HASH"
-          sed -i "s|>dev</span>|>$COMMIT_HASH</span>|g" index.html
+          echo "Before sed:"
+          grep "app-version" index.html
+          sed -i "s|>dev</span>|>${COMMIT_HASH}</span>|g" index.html
+          echo "After sed:"
           grep "app-version" index.html
       - uses: actions/upload-pages-artifact@v3
         with:
