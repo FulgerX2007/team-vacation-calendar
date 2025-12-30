@@ -31,6 +31,8 @@ jobs:
       - uses: actions/configure-pages@v4
         with:
           enablement: true
+      - name: Verify version before upload
+        run: cat index.html | grep "app-version"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
