@@ -1,6 +1,6 @@
 /**
  * Main application logic
- * Replaces API calls with LocalStorage operations
+ * LocalStorage-backed vacation calendar.
  */
 
 import * as Storage from './storage.js';
@@ -8,40 +8,161 @@ import * as Calendar from './calendar.js';
 import * as Backup from './backup.js';
 import * as Holidays from './holidays.js';
 
-// Color palette for auto-generating employee colors
 const EMPLOYEE_COLORS = [
-    '#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#f39c12',
-    '#1abc9c', '#e91e63', '#00bcd4', '#ff5722', '#607d8b'
+    '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c',
+    '#0891b2', '#db2777', '#0284c7', '#f59e0b', '#475569'
 ];
 let colorIndex = 0;
 
 let vacationStartPicker, vacationEndPicker;
 let calendarFromPicker, calendarToPicker;
 let currentCalendarDataUrl = null;
+let employeeSearchTerm = '';
 
 document.addEventListener('DOMContentLoaded', () => {
     Storage.initStorage();
+    initTheme();
     loadEmployees();
     loadVacations();
     setupEventListeners();
     setupBackupListeners();
+    setupModal();
+    setupSearch();
     initDatePickers();
     initCountrySelector();
     syncCalendarDates();
 });
 
+/* ---------------------------------------------------------------
+   Theme
+--------------------------------------------------------------- */
+function initTheme() {
+    const toggle = document.getElementById('theme-toggle');
+    if (!toggle) return;
+
+    toggle.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        const next = current === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('vc_theme', next); } catch (e) { /* ignore */ }
+    });
+}
+
+/* ---------------------------------------------------------------
+   Avatar helpers
+--------------------------------------------------------------- */
+function getInitials(name) {
+    if (!name) return '??';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/* ---------------------------------------------------------------
+   Toast
+--------------------------------------------------------------- */
+let toastTimeout = null;
+function toast(message, type = 'info') {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = message;
+    el.className = 'toast' + (type === 'success' ? ' toast-success' : type === 'error' ? ' toast-error' : '');
+    el.hidden = false;
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => { el.hidden = true; }, 2400);
+}
+
+/* ---------------------------------------------------------------
+   Event wiring
+--------------------------------------------------------------- */
 function setupEventListeners() {
     document.getElementById('employee-form').addEventListener('submit', handleEmployeeSubmit);
     document.getElementById('vacation-form').addEventListener('submit', handleVacationSubmit);
     document.getElementById('calendar-form').addEventListener('submit', handleCalendarGenerate);
-    document.getElementById('cancel-employee').addEventListener('click', resetEmployeeForm);
     document.getElementById('cancel-vacation').addEventListener('click', resetVacationForm);
     document.getElementById('copy-clipboard').addEventListener('click', copyToClipboard);
+
+    // Color preview sync
+    const colorInput = document.getElementById('employee-color');
+    const colorPreview = document.getElementById('employee-color-preview');
+    const colorHex = document.getElementById('employee-color-hex');
+    if (colorInput && colorPreview && colorHex) {
+        const updateColor = () => {
+            colorPreview.style.setProperty('--swatch-color', colorInput.value);
+            colorHex.textContent = colorInput.value.toUpperCase();
+        };
+        colorInput.addEventListener('input', updateColor);
+        updateColor();
+    }
 }
 
+function setupSearch() {
+    const search = document.getElementById('employee-search');
+    if (!search) return;
+    search.addEventListener('input', (e) => {
+        employeeSearchTerm = e.target.value.trim().toLowerCase();
+        renderEmployeesList(Storage.getEmployees());
+    });
+}
+
+/* ---------------------------------------------------------------
+   Modal (employee add/edit)
+--------------------------------------------------------------- */
+function setupModal() {
+    const openBtn = document.getElementById('open-employee-form');
+    const modal = document.getElementById('employee-modal');
+    if (!openBtn || !modal) return;
+
+    openBtn.addEventListener('click', () => openEmployeeModal());
+
+    modal.querySelectorAll('[data-close-modal]').forEach((el) => {
+        el.addEventListener('click', closeEmployeeModal);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) closeEmployeeModal();
+    });
+}
+
+function openEmployeeModal(employee = null) {
+    const modal = document.getElementById('employee-modal');
+    const title = document.getElementById('employee-modal-title');
+    const submit = document.getElementById('employee-submit');
+    const idInput = document.getElementById('employee-id');
+    const nameInput = document.getElementById('employee-name');
+    const colorInput = document.getElementById('employee-color');
+
+    if (employee) {
+        title.textContent = 'Edit Employee';
+        submit.textContent = 'Save Changes';
+        idInput.value = employee.id;
+        nameInput.value = employee.name;
+        colorInput.value = employee.color;
+    } else {
+        title.textContent = 'Add Employee';
+        submit.textContent = 'Add Employee';
+        idInput.value = '';
+        nameInput.value = '';
+        colorInput.value = getNextColor();
+    }
+    colorInput.dispatchEvent(new Event('input'));
+
+    modal.hidden = false;
+    setTimeout(() => nameInput.focus(), 50);
+}
+
+function closeEmployeeModal() {
+    document.getElementById('employee-modal').hidden = true;
+    resetEmployeeForm();
+}
+
+/* ---------------------------------------------------------------
+   Backup wiring
+--------------------------------------------------------------- */
 function setupBackupListeners() {
     document.getElementById('export-btn').addEventListener('click', () => {
         Backup.exportData();
+        toast('Data exported successfully', 'success');
     });
 
     document.getElementById('import-btn').addEventListener('click', () => {
@@ -54,15 +175,14 @@ function setupBackupListeners() {
 
         const result = await Backup.importData(file);
         if (result.success) {
-            alert(result.message);
+            toast(result.message || 'Data imported successfully', 'success');
             loadEmployees();
             loadVacations();
             syncCalendarDates();
         } else {
-            alert('Import failed: ' + result.message);
+            toast('Import failed: ' + result.message, 'error');
         }
 
-        // Reset file input
         e.target.value = '';
     });
 
@@ -70,20 +190,27 @@ function setupBackupListeners() {
         if (Backup.clearAllData()) {
             loadEmployees();
             loadVacations();
-            // Clear calendar preview
-            document.getElementById('calendar-preview').innerHTML =
-                '<p class="placeholder-text">Select a date range and click "Generate Calendar" to preview</p>';
-            document.getElementById('calendar-actions').style.display = 'none';
-            // Reset calendar dates to defaults
+            const preview = document.getElementById('calendar-preview');
+            preview.innerHTML = `
+                <div class="placeholder">
+                    <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <p>Select a date range and click <strong>Generate Calendar</strong> to preview</p>
+                </div>`;
+            document.getElementById('calendar-actions').hidden = true;
+
             const today = new Date();
             const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
             calendarFromPicker.setDate(today);
             calendarToPicker.setDate(nextMonth);
             calendarToPicker.set('minDate', today);
+            toast('All data cleared', 'success');
         }
     });
 }
 
+/* ---------------------------------------------------------------
+   Date pickers
+--------------------------------------------------------------- */
 function initDatePickers() {
     const commonConfig = {
         dateFormat: 'Y-m-d',
@@ -121,41 +248,40 @@ function initDatePickers() {
     });
 }
 
-/**
- * Initialize country selector dropdown for holidays
- */
+/* ---------------------------------------------------------------
+   Country selector
+--------------------------------------------------------------- */
+function countryFlag(code) {
+    if (!code || code.length !== 2) return '';
+    const A = 0x1F1E6;
+    const a = 'A'.charCodeAt(0);
+    return String.fromCodePoint(A + code.charCodeAt(0) - a) +
+           String.fromCodePoint(A + code.charCodeAt(1) - a);
+}
+
 function initCountrySelector() {
     const select = document.getElementById('holiday-country');
     if (!select) return;
 
-    // Populate with countries from holidays module
     const countries = Holidays.getPopularCountries();
-    countries.forEach(country => {
+    countries.forEach((country) => {
         const option = document.createElement('option');
         option.value = country.code;
-        option.textContent = country.name;
+        option.textContent = `${countryFlag(country.code)}  ${country.name}`;
         select.appendChild(option);
     });
 
-    // Restore saved selection
     const savedCountry = Holidays.getSelectedCountry();
-    if (savedCountry) {
-        select.value = savedCountry;
-    }
+    if (savedCountry) select.value = savedCountry;
 
-    // Save selection on change
     select.addEventListener('change', (e) => {
         Holidays.setSelectedCountry(e.target.value);
     });
 }
 
-function formatDate(date) {
-    return date.toISOString().split('T')[0];
-}
-
-/**
- * Get min/max date range from all vacations
- */
+/* ---------------------------------------------------------------
+   Calendar date sync
+--------------------------------------------------------------- */
 function getVacationDateRange() {
     const vacations = Storage.getVacations();
     if (vacations.length === 0) return null;
@@ -163,7 +289,7 @@ function getVacationDateRange() {
     let minDate = vacations[0].start_date;
     let maxDate = vacations[0].end_date;
 
-    vacations.forEach(v => {
+    vacations.forEach((v) => {
         if (v.start_date < minDate) minDate = v.start_date;
         if (v.end_date > maxDate) maxDate = v.end_date;
     });
@@ -171,9 +297,6 @@ function getVacationDateRange() {
     return { from: minDate, to: maxDate };
 }
 
-/**
- * Format date as YYYY-MM-DD in local timezone
- */
 function formatLocalDate(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -181,31 +304,22 @@ function formatLocalDate(date) {
     return `${year}-${month}-${day}`;
 }
 
-/**
- * Round date to Monday (start of week)
- */
 function roundToMonday(dateStr) {
     const date = new Date(dateStr + 'T00:00:00');
-    const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const diff = day === 0 ? -6 : 1 - day; // If Sunday, go back 6 days
+    const day = date.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
     date.setDate(date.getDate() + diff);
     return formatLocalDate(date);
 }
 
-/**
- * Round date to Sunday (end of week)
- */
 function roundToSunday(dateStr) {
     const date = new Date(dateStr + 'T00:00:00');
-    const day = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const diff = day === 0 ? 0 : 7 - day; // If Sunday, stay; else go forward
+    const day = date.getDay();
+    const diff = day === 0 ? 0 : 7 - day;
     date.setDate(date.getDate() + diff);
     return formatLocalDate(date);
 }
 
-/**
- * Sync calendar date pickers with vacation date range (rounded to week boundaries)
- */
 function syncCalendarDates() {
     const range = getVacationDateRange();
     if (range) {
@@ -217,6 +331,9 @@ function syncCalendarDates() {
     }
 }
 
+/* ---------------------------------------------------------------
+   Employees
+--------------------------------------------------------------- */
 function loadEmployees() {
     const employees = Storage.getEmployees();
     renderEmployeesList(employees);
@@ -226,40 +343,73 @@ function loadEmployees() {
 function renderEmployeesList(employees) {
     const list = document.getElementById('employees-list');
 
+    let filtered = employees || [];
+    if (employeeSearchTerm) {
+        filtered = filtered.filter((e) =>
+            e.name.toLowerCase().includes(employeeSearchTerm)
+        );
+    }
+
     if (!employees || employees.length === 0) {
-        list.innerHTML = '<p class="empty-message">No employees yet. Add one above.</p>';
+        list.innerHTML = `<div class="empty">No employees yet. Click <strong>Add Employee</strong> to get started.</div>`;
         return;
     }
 
-    list.innerHTML = employees.map(emp => `
-        <div class="list-item">
-            <div class="list-item-info">
-                <span class="color-badge" style="background-color: ${emp.color}"></span>
-                <span>${escapeHtml(emp.name)}</span>
+    if (filtered.length === 0) {
+        list.innerHTML = `<div class="empty">No employees match "<strong>${escapeHtml(employeeSearchTerm)}</strong>"</div>`;
+        return;
+    }
+
+    list.innerHTML = filtered.map((emp) => `
+        <div class="list-row" role="listitem">
+            <div class="row-info">
+                <span class="avatar" style="--avatar-bg: ${emp.color}" aria-hidden="true">${getInitials(emp.name)}</span>
+                <div class="row-text">
+                    <div class="row-name">${escapeHtml(emp.name)}</div>
+                </div>
             </div>
-            <div class="list-item-actions">
-                <button class="btn btn-secondary btn-sm" onclick="editEmployee(${emp.id}, '${escapeHtml(emp.name)}', '${emp.color}')">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteEmployee(${emp.id})">Delete</button>
+            <div class="row-actions">
+                <button type="button" class="icon-btn icon-btn-edit" data-edit-employee="${emp.id}" aria-label="Edit ${escapeHtml(emp.name)}">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+                </button>
+                <button type="button" class="icon-btn icon-btn-danger" data-delete-employee="${emp.id}" aria-label="Delete ${escapeHtml(emp.name)}">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
             </div>
         </div>
     `).join('');
+
+    list.querySelectorAll('[data-edit-employee]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const id = parseInt(btn.dataset.editEmployee);
+            const emp = (employees || []).find((e) => e.id === id);
+            if (emp) openEmployeeModal(emp);
+        });
+    });
+
+    list.querySelectorAll('[data-delete-employee]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            deleteEmployee(parseInt(btn.dataset.deleteEmployee));
+        });
+    });
 }
 
 function updateEmployeeSelect(employees) {
     const select = document.getElementById('vacation-employee');
     const currentValue = select.value;
 
-    select.innerHTML = '<option value="">Select employee</option>';
+    select.innerHTML = '<option value="">Choose an employee</option>';
 
     if (employees && employees.length > 0) {
-        employees.forEach(emp => {
-            select.innerHTML += `<option value="${emp.id}">${escapeHtml(emp.name)}</option>`;
+        employees.forEach((emp) => {
+            const opt = document.createElement('option');
+            opt.value = emp.id;
+            opt.textContent = emp.name;
+            select.appendChild(opt);
         });
     }
 
-    if (currentValue) {
-        select.value = currentValue;
-    }
+    if (currentValue) select.value = currentValue;
 }
 
 function handleEmployeeSubmit(e) {
@@ -270,35 +420,26 @@ function handleEmployeeSubmit(e) {
     const color = document.getElementById('employee-color').value;
 
     if (!name) {
-        alert('Please enter an employee name');
+        toast('Please enter an employee name', 'error');
         return;
     }
 
     if (id) {
-        // Update existing
         const updated = Storage.updateEmployee(parseInt(id), name, color);
         if (!updated) {
-            alert('Employee not found');
+            toast('Employee not found', 'error');
             return;
         }
+        toast('Employee updated', 'success');
     } else {
-        // Create new
         Storage.createEmployee(name, color);
+        toast('Employee added', 'success');
     }
 
-    resetEmployeeForm();
+    closeEmployeeModal();
     loadEmployees();
-    loadVacations(); // Refresh to update employee names in vacation list
+    loadVacations();
 }
-
-// Expose to global scope for onclick handlers
-window.editEmployee = function(id, name, color) {
-    document.getElementById('employee-id').value = id;
-    document.getElementById('employee-name').value = name;
-    document.getElementById('employee-color').value = color;
-    document.querySelector('#employee-form button[type="submit"]').textContent = 'Update Employee';
-    document.getElementById('cancel-employee').style.display = 'inline-block';
-};
 
 function getNextColor() {
     const color = EMPLOYEE_COLORS[colorIndex % EMPLOYEE_COLORS.length];
@@ -309,26 +450,28 @@ function getNextColor() {
 function resetEmployeeForm() {
     document.getElementById('employee-id').value = '';
     document.getElementById('employee-name').value = '';
-    document.getElementById('employee-color').value = getNextColor();
-    document.querySelector('#employee-form button[type="submit"]').textContent = 'Add Employee';
-    document.getElementById('cancel-employee').style.display = 'none';
+    document.getElementById('employee-color').value = '#2563eb';
+    document.getElementById('employee-color').dispatchEvent(new Event('input'));
 }
 
-// Expose to global scope for onclick handlers
-window.deleteEmployee = function(id) {
+function deleteEmployee(id) {
     if (!confirm('Delete this employee and all their vacations?')) return;
 
     const deleted = Storage.deleteEmployee(id);
     if (!deleted) {
-        alert('Employee not found');
+        toast('Employee not found', 'error');
         return;
     }
 
     loadEmployees();
     loadVacations();
     syncCalendarDates();
-};
+    toast('Employee deleted', 'success');
+}
 
+/* ---------------------------------------------------------------
+   Vacations
+--------------------------------------------------------------- */
 function loadVacations() {
     const vacations = Storage.getVacations();
     renderVacationsList(vacations);
@@ -338,26 +481,47 @@ function renderVacationsList(vacations) {
     const list = document.getElementById('vacations-list');
 
     if (!vacations || vacations.length === 0) {
-        list.innerHTML = '<p class="empty-message">No vacations yet. Add one above.</p>';
+        list.innerHTML = `<div class="empty">No vacations yet. Add one with the form above.</div>`;
         return;
     }
 
-    list.innerHTML = vacations.map(v => `
-        <div class="list-item">
-            <div class="list-item-info">
-                <span class="color-badge" style="background-color: ${v.employee?.color || '#3498db'}"></span>
-                <div>
-                    <strong>${escapeHtml(v.employee?.name || 'Unknown')}</strong>
-                    <div class="vacation-dates">${formatDisplayDate(v.start_date)} - ${formatDisplayDate(v.end_date)}</div>
-                    ${v.description ? `<small>${escapeHtml(v.description)}</small>` : ''}
+    list.innerHTML = vacations.map((v) => {
+        const color = v.employee?.color || '#2563eb';
+        const name = v.employee?.name || 'Unknown';
+        return `
+        <div class="list-row vacation-row" role="listitem" style="--row-accent: ${color}">
+            <div class="row-info">
+                <span class="avatar" style="--avatar-bg: ${color}" aria-hidden="true">${getInitials(name)}</span>
+                <div class="row-text">
+                    <div class="row-name">${escapeHtml(name)}</div>
+                    <div class="row-meta">${formatDisplayDate(v.start_date)} – ${formatDisplayDate(v.end_date)}</div>
+                    ${v.description ? `<div class="row-desc">${escapeHtml(v.description)}</div>` : ''}
                 </div>
             </div>
-            <div class="list-item-actions">
-                <button class="btn btn-secondary btn-sm" onclick="editVacation(${v.id}, ${v.employee_id}, '${v.start_date}', '${v.end_date}', '${escapeHtml(v.description || '')}')">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteVacation(${v.id})">Delete</button>
+            <div class="row-actions">
+                <button type="button" class="icon-btn icon-btn-edit" data-edit-vacation="${v.id}" aria-label="Edit vacation">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>
+                </button>
+                <button type="button" class="icon-btn icon-btn-danger" data-delete-vacation="${v.id}" aria-label="Delete vacation">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('[data-edit-vacation]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const id = parseInt(btn.dataset.editVacation);
+            const v = vacations.find((x) => x.id === id);
+            if (v) editVacation(v);
+        });
+    });
+
+    list.querySelectorAll('[data-delete-vacation]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            deleteVacation(parseInt(btn.dataset.deleteVacation));
+        });
+    });
 }
 
 function formatDisplayDate(dateStr) {
@@ -375,30 +539,30 @@ function handleVacationSubmit(e) {
     const description = document.getElementById('vacation-description').value.trim();
 
     if (!employee_id) {
-        alert('Please select an employee');
+        toast('Please select an employee', 'error');
         return;
     }
 
     if (!start_date || !end_date) {
-        alert('Please select start and end dates');
+        toast('Please select start and end dates', 'error');
         return;
     }
 
     if (new Date(end_date) < new Date(start_date)) {
-        alert('End date must be after start date');
+        toast('End date must be after start date', 'error');
         return;
     }
 
     if (id) {
-        // Update existing
         const updated = Storage.updateVacation(parseInt(id), employee_id, start_date, end_date, description);
         if (!updated) {
-            alert('Vacation not found');
+            toast('Vacation not found', 'error');
             return;
         }
+        toast('Vacation updated', 'success');
     } else {
-        // Create new
         Storage.createVacation(employee_id, start_date, end_date, description);
+        toast('Vacation added', 'success');
     }
 
     resetVacationForm();
@@ -406,17 +570,17 @@ function handleVacationSubmit(e) {
     syncCalendarDates();
 }
 
-// Expose to global scope for onclick handlers
-window.editVacation = function(id, employeeId, startDate, endDate, description) {
-    document.getElementById('vacation-id').value = id;
-    document.getElementById('vacation-employee').value = employeeId;
-    vacationStartPicker.setDate(startDate);
-    vacationEndPicker.setDate(endDate);
-    vacationEndPicker.set('minDate', startDate);
-    document.getElementById('vacation-description').value = description;
+function editVacation(v) {
+    document.getElementById('vacation-id').value = v.id;
+    document.getElementById('vacation-employee').value = v.employee_id;
+    vacationStartPicker.setDate(v.start_date);
+    vacationEndPicker.setDate(v.end_date);
+    vacationEndPicker.set('minDate', v.start_date);
+    document.getElementById('vacation-description').value = v.description || '';
     document.querySelector('#vacation-form button[type="submit"]').textContent = 'Update Vacation';
-    document.getElementById('cancel-vacation').style.display = 'inline-block';
-};
+    document.getElementById('cancel-vacation').hidden = false;
+    document.getElementById('vacation-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 function resetVacationForm() {
     document.getElementById('vacation-id').value = '';
@@ -426,23 +590,26 @@ function resetVacationForm() {
     vacationEndPicker.set('minDate', null);
     document.getElementById('vacation-description').value = '';
     document.querySelector('#vacation-form button[type="submit"]').textContent = 'Add Vacation';
-    document.getElementById('cancel-vacation').style.display = 'none';
+    document.getElementById('cancel-vacation').hidden = true;
 }
 
-// Expose to global scope for onclick handlers
-window.deleteVacation = function(id) {
+function deleteVacation(id) {
     if (!confirm('Delete this vacation?')) return;
 
     const deleted = Storage.deleteVacation(id);
     if (!deleted) {
-        alert('Vacation not found');
+        toast('Vacation not found', 'error');
         return;
     }
 
     loadVacations();
     syncCalendarDates();
-};
+    toast('Vacation deleted', 'success');
+}
 
+/* ---------------------------------------------------------------
+   Calendar generation
+--------------------------------------------------------------- */
 async function handleCalendarGenerate(e) {
     e.preventDefault();
 
@@ -451,26 +618,25 @@ async function handleCalendarGenerate(e) {
     const countryCode = document.getElementById('holiday-country').value;
 
     if (!from || !to) {
-        alert('Please select both from and to dates');
+        toast('Please select both from and to dates', 'error');
         return;
     }
 
     const preview = document.getElementById('calendar-preview');
     const actions = document.getElementById('calendar-actions');
 
-    preview.innerHTML = '<p>Generating calendar...</p>';
-    actions.style.display = 'none';
+    preview.innerHTML = `<div class="placeholder"><p>Generating calendar…</p></div>`;
+    actions.hidden = true;
 
     try {
         const employees = Storage.getEmployees();
         const vacations = Storage.getVacationsByDateRange(from, to);
 
         if (employees.length === 0) {
-            preview.innerHTML = '<p class="placeholder-text">No employees found. Add employees first.</p>';
+            preview.innerHTML = `<div class="placeholder"><p>No employees found. Add employees first.</p></div>`;
             return;
         }
 
-        // Fetch holidays if country is selected
         let holidays = [];
         let countryName = '';
         if (countryCode) {
@@ -479,69 +645,58 @@ async function handleCalendarGenerate(e) {
                 countryName = Holidays.getCountryName(countryCode);
             } catch (err) {
                 console.warn('Failed to fetch holidays:', err);
-                // Continue without holidays
             }
         }
 
         const { canvas, dataUrl } = await Calendar.generateCalendar(from, to, employees, vacations, holidays, countryName);
 
-        // Store data URL for clipboard
         currentCalendarDataUrl = dataUrl;
 
-        // Clear and display canvas
         preview.innerHTML = '';
         preview.appendChild(canvas);
 
-        // Setup download link
         const downloadLink = document.getElementById('download-png');
         downloadLink.href = dataUrl;
         downloadLink.download = `vacation_calendar_${from}_${to}.png`;
 
-        actions.style.display = 'flex';
-
+        actions.hidden = false;
     } catch (error) {
         console.error('Error generating calendar:', error);
-        preview.innerHTML = '<p class="placeholder-text">Error generating calendar</p>';
+        preview.innerHTML = `<div class="placeholder"><p>Error generating calendar</p></div>`;
     }
 }
 
-/**
- * Escape HTML to prevent XSS
- */
+/* ---------------------------------------------------------------
+   Utilities
+--------------------------------------------------------------- */
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-/**
- * Copy calendar image to clipboard
- */
 async function copyToClipboard() {
     if (!currentCalendarDataUrl) return;
 
     try {
-        // Convert data URL to blob
         const response = await fetch(currentCalendarDataUrl);
         const blob = await response.blob();
 
-        // Use Clipboard API to copy image
         await navigator.clipboard.write([
             new ClipboardItem({ 'image/png': blob })
         ]);
 
-        // Visual feedback
         const btn = document.getElementById('copy-clipboard');
-        const originalText = btn.textContent;
-        btn.textContent = 'Copied!';
+        const span = btn.querySelector('span');
+        const originalText = span ? span.textContent : btn.textContent;
+        if (span) span.textContent = 'Copied!';
         btn.classList.add('copied');
         setTimeout(() => {
-            btn.textContent = originalText;
+            if (span) span.textContent = originalText;
             btn.classList.remove('copied');
         }, 2000);
     } catch (err) {
         console.error('Failed to copy to clipboard:', err);
-        alert('Failed to copy to clipboard. Your browser may not support this feature.');
+        toast('Clipboard copy not supported in this browser', 'error');
     }
 }
-
